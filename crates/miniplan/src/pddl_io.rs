@@ -90,13 +90,14 @@ pub fn load_combined_str_named(
     } else if parsed.domains.len() == 1 {
         let d = &parsed.domains[0];
         if let Some(name) = domain_name
-            && *d.name() != name {
-                return Err(MiniplanError::Parse(format!(
-                    "domain '{}' not found; available: {}",
-                    name,
-                    domain_names(&parsed.domains)
-                )));
-            }
+            && *d.name() != name
+        {
+            return Err(MiniplanError::Parse(format!(
+                "domain '{}' not found; available: {}",
+                name,
+                domain_names(&parsed.domains)
+            )));
+        }
         d.clone()
     } else {
         let name = domain_name.ok_or_else(|| {
@@ -125,13 +126,14 @@ pub fn load_combined_str_named(
     } else if parsed.problems.len() == 1 {
         let p = &parsed.problems[0];
         if let Some(name) = problem_name
-            && *p.name() != name {
-                return Err(MiniplanError::Parse(format!(
-                    "problem '{}' not found; available: {}",
-                    name,
-                    problem_names(&parsed.problems)
-                )));
-            }
+            && *p.name() != name
+        {
+            return Err(MiniplanError::Parse(format!(
+                "problem '{}' not found; available: {}",
+                name,
+                problem_names(&parsed.problems)
+            )));
+        }
         p.clone()
     } else {
         let name = problem_name.ok_or_else(|| {
