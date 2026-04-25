@@ -3,6 +3,10 @@ use pddl::{AtomicFormula, FunctionTerm, GoalDefinition, Literal, Term};
 use crate::error::MiniplanError;
 use crate::task::{Fact, State, Task};
 
+// NOTE: walk_goal_definition ignores Exists/ForAll bound variables (drops them
+// and walks the body under outer bindings).  For quantifier-aware evaluation
+// of derived-predicate bodies, use derived::eval_gd instead.
+
 #[derive(Debug, Clone)]
 pub struct LiteralSet {
     pub pos: Vec<(String, Vec<String>)>,
@@ -159,7 +163,7 @@ fn walk_atomic_formula_inner(
     }
 }
 
-fn term_to_string(term: &Term, bindings: &[(String, String)]) -> String {
+pub(crate) fn term_to_string(term: &Term, bindings: &[(String, String)]) -> String {
     match term {
         Term::Name(n) => n.to_string(),
         Term::Variable(v) => {
