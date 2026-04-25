@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
 use miniplan::ground::ground;
-use miniplan::pddl_io::load_files;
+use miniplan::pddl_io::load_files_named;
 use miniplan::plan::Plan;
 use miniplan::search::{PlannerChoice, PlannerConfig, SearchLimits, SearchOutcome, Solver};
 
@@ -27,6 +27,14 @@ enum Command {
         /// Input PDDL file(s) — one combined, or domain + problem
         #[arg(required = true)]
         input: Vec<PathBuf>,
+
+        /// Domain name to select (when input contains multiple domains)
+        #[arg(long)]
+        domain: Option<String>,
+
+        /// Problem name to select (when input contains multiple problems)
+        #[arg(long)]
+        problem: Option<String>,
 
         /// Planner to use
         #[arg(short = 'p', long, default_value = "astar")]
@@ -61,6 +69,14 @@ enum Command {
         /// Input PDDL file(s)
         #[arg(required = true)]
         input: Vec<PathBuf>,
+
+        /// Domain name to select (when input contains multiple domains)
+        #[arg(long)]
+        domain: Option<String>,
+
+        /// Problem name to select (when input contains multiple problems)
+        #[arg(long)]
+        problem: Option<String>,
     },
     /// List available planners and heuristics
     ListPlanners,
@@ -98,6 +114,8 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Solve {
             input,
+            domain,
+            problem,
             planner,
             heuristic,
             timeout,
@@ -106,9 +124,22 @@ fn main() -> Result<()> {
             format,
             stats,
         } => cmd_solve(
-            &input, &planner, &heuristic, timeout, max_nodes, &output, &format, stats,
+            &input,
+            domain.as_deref(),
+            problem.as_deref(),
+            &planner,
+            &heuristic,
+            timeout,
+            max_nodes,
+            &output,
+            &format,
+            stats,
         ),
-        Command::Check { input } => cmd_check(&input),
+        Command::Check {
+            input,
+            domain,
+            problem,
+        } => cmd_check(&input, domain.as_deref(), problem.as_deref()),
         Command::ListPlanners => cmd_list_planners(),
     }
 }
@@ -116,6 +147,8 @@ fn main() -> Result<()> {
 #[allow(clippy::too_many_arguments)]
 fn cmd_solve(
     inputs: &[PathBuf],
+    domain_name: Option<&str>,
+    problem_name: Option<&str>,
     planner_name: &str,
     heuristic_name: &str,
     timeout: Option<humantime::Duration>,
@@ -126,7 +159,8 @@ fn cmd_solve(
 ) -> Result<()> {
     let solver = Solver::new();
 
-    let (domain, problem) = load_files(inputs).context("Failed to load PDDL files")?;
+    let (domain, problem) =
+        load_files_named(inputs, domain_name, problem_name).context("Failed to load PDDL files")?;
     tracing::info!(
         "Loaded domain '{}' and problem '{}'",
         domain.name().to_string(),
@@ -199,8 +233,13 @@ fn cmd_solve(
     }
 }
 
-fn cmd_check(inputs: &[PathBuf]) -> Result<()> {
-    let (domain, problem) = load_files(inputs).context("Failed to load PDDL files")?;
+fn cmd_check(
+    inputs: &[PathBuf],
+    domain_name: Option<&str>,
+    problem_name: Option<&str>,
+) -> Result<()> {
+    let (domain, problem) =
+        load_files_named(inputs, domain_name, problem_name).context("Failed to load PDDL files")?;
     tracing::info!(
         "Loaded domain '{}' and problem '{}'",
         domain.name().to_string(),
