@@ -1,0 +1,17 @@
+[package]
+name = "miniplan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+pddl.workspace = true
+thiserror.workspace = true
+fixedbitset.workspace = true
+rustc-hash.workspace = true
+indexmap.workspace = true
+tracing.workspace = true
+bitflags.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true

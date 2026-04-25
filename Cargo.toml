@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = ["crates/miniplan", "crates/miniplan-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "EUPL-1.2"
+repository = "https://github.com/sunsided/miniplan"
+
+[workspace.dependencies]
+pddl = "0.1"
+thiserror = "1"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+fixedbitset = "0.5"
+rustc-hash = "2"
+indexmap = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+humantime = "2"
+pretty_assertions = "1"
+bitflags = "2"
+serde_json = "1"

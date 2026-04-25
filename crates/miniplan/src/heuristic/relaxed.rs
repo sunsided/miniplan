@@ -1,0 +1,211 @@
+use crate::Heuristic;
+use crate::search::HValue;
+use crate::task::{FactId, OpId, State, Task};
+
+pub struct HAdd;
+pub struct HMax;
+pub struct HFF;
+
+impl Heuristic for HAdd {
+    fn name(&self) -> &str {
+        "hadd"
+    }
+
+    fn estimate(&self, task: &Task, state: &State) -> HValue {
+        let rpg = build_rpg(task, state);
+        let mut cost = 0.0;
+        for bit in task.goal_pos.0.ones() {
+            cost += rpg.fact_cost[bit];
+        }
+        HValue(cost)
+    }
+}
+
+impl Heuristic for HMax {
+    fn name(&self) -> &str {
+        "hmax"
+    }
+
+    fn estimate(&self, task: &Task, state: &State) -> HValue {
+        let rpg = build_rpg(task, state);
+        let mut max_cost: f64 = 0.0;
+        for bit in task.goal_pos.0.ones() {
+            max_cost = max_cost.max(rpg.fact_cost[bit]);
+        }
+        HValue(max_cost)
+    }
+}
+
+impl Heuristic for HFF {
+    fn name(&self) -> &str {
+        "hff"
+    }
+
+    fn estimate(&self, task: &Task, state: &State) -> HValue {
+        let rpg = build_rpg(task, state);
+        let cost = extract_relaxed_plan_cost(task, &rpg);
+        HValue(cost)
+    }
+
+    fn preferred_ops(&self, _task: &Task, _state: &State) -> &[OpId] {
+        // Return preferred operators from relaxed plan extraction
+        static EMPTY: [OpId; 0] = [];
+        &EMPTY
+    }
+}
+
+#[allow(dead_code)]
+struct RpgLevel {
+    facts: Vec<FactId>,
+    applicable_ops: Vec<usize>,
+}
+
+#[allow(dead_code)]
+struct RpgResult {
+    fact_cost: Vec<f64>,
+    achiever: Vec<Option<usize>>,
+    levels: Vec<RpgLevel>,
+}
+
+fn build_rpg(task: &Task, state: &State) -> RpgResult {
+    let num_facts = task.num_facts();
+    let mut fact_cost = vec![f64::INFINITY; num_facts];
+    let mut achiever: Vec<Option<usize>> = vec![None; num_facts];
+    let mut levels: Vec<RpgLevel> = Vec::new();
+
+    let mut achieved = fixedbitset::FixedBitSet::with_capacity(num_facts);
+
+    // Initialize with facts true in the state
+    for bit in state.0.ones() {
+        fact_cost[bit] = 0.0;
+        achieved.set(bit, true);
+    }
+
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let mut level_facts = Vec::new();
+        let mut level_ops = Vec::new();
+
+        // Find applicable operators in relaxed mode
+        for (op_idx, op) in task.operators.iter().enumerate() {
+            // Check if all pre_pos are achieved
+            let pre_satisfied = op.pre_pos.0.ones().all(|b| achieved.contains(b));
+            // Negative preconditions: in delete relaxation, neg preconditions
+            // must NOT be true in the current state (or any achieved fact)
+            let neg_satisfied = op.pre_neg.0.ones().all(|b| !achieved.contains(b));
+
+            if pre_satisfied && neg_satisfied {
+                let _op_cost = if level_ops.is_empty() {
+                    // First applicable op, cost is max of preconditions
+                    op.pre_pos
+                        .0
+                        .ones()
+                        .map(|b| fact_cost[b])
+                        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                        .unwrap_or(0.0)
+                } else {
+                    // Reuse previous level's costs
+                    0.0
+                };
+
+                let cost = op.cost as f64 + op.pre_pos.0.ones().map(|b| fact_cost[b]).sum::<f64>();
+
+                for bit in op.add.0.ones() {
+                    if cost < fact_cost[bit] {
+                        fact_cost[bit] = cost;
+                        achiever[bit] = Some(op_idx);
+                        if !achieved.contains(bit) {
+                            achieved.set(bit, true);
+                            level_facts.push(FactId(bit));
+                            changed = true;
+                        }
+                    }
+                }
+
+                // Handle conditional effects
+                for cond in &op.conditional {
+                    let cond_satisfied = cond.cond_pos.0.ones().all(|b| achieved.contains(b))
+                        && cond.cond_neg.0.ones().all(|b| !achieved.contains(b));
+
+                    if cond_satisfied {
+                        let cond_cost =
+                            cost + cond.cond_pos.0.ones().map(|b| fact_cost[b]).sum::<f64>();
+
+                        for bit in cond.add.0.ones() {
+                            if cond_cost < fact_cost[bit] {
+                                fact_cost[bit] = cond_cost;
+                                achiever[bit] = Some(op_idx);
+                                if !achieved.contains(bit) {
+                                    achieved.set(bit, true);
+                                    level_facts.push(FactId(bit));
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                level_ops.push(op_idx);
+            }
+        }
+
+        if !level_facts.is_empty() || !level_ops.is_empty() {
+            levels.push(RpgLevel {
+                facts: level_facts,
+                applicable_ops: level_ops,
+            });
+        }
+
+        // Safety: prevent infinite loops
+        if levels.len() > num_facts * 2 {
+            break;
+        }
+    }
+
+    RpgResult {
+        fact_cost,
+        achiever,
+        levels,
+    }
+}
+
+fn extract_relaxed_plan_cost(task: &Task, rpg: &RpgResult) -> f64 {
+    let mut marked_ops = std::collections::HashSet::new();
+    let mut total_cost = 0.0;
+
+    // Extract relaxed plan backwards from goals
+    let mut goals_to_achieve: Vec<FactId> = task
+        .goal_pos
+        .0
+        .ones()
+        .filter(|&b| rpg.fact_cost[b] < f64::INFINITY)
+        .map(FactId)
+        .collect();
+
+    let mut visited = std::collections::HashSet::new();
+
+    while let Some(fact) = goals_to_achieve.pop() {
+        if visited.contains(&fact) {
+            continue;
+        }
+        visited.insert(fact);
+
+        if let Some(Some(op_idx)) = rpg.achiever.get(fact.0).copied()
+            && !marked_ops.contains(&op_idx)
+        {
+            marked_ops.insert(op_idx);
+            if let Some(op) = task.operators.get(op_idx) {
+                total_cost += op.cost as f64;
+                // Add preconditions to achieve
+                for pre_bit in op.pre_pos.0.ones() {
+                    if !visited.contains(&FactId(pre_bit)) {
+                        goals_to_achieve.push(FactId(pre_bit));
+                    }
+                }
+            }
+        }
+    }
+
+    total_cost
+}
