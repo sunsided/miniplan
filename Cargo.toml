@@ -19,7 +19,7 @@ clap = { version = "4", features = ["derive"] }
 fixedbitset = "0.5"
 humantime = "2"
 indexmap = "2"
-miniplan.path = "crates/miniplan"
+miniplan = { version = "0.1.0", path = "crates/miniplan" }
 pddl = "0.2.0"
 pretty_assertions = "1"
 rustc-hash = "2"
