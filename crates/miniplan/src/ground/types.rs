@@ -11,7 +11,16 @@ pub fn extract_types(domain: &Domain) -> Result<TypeHierarchy, MiniplanError> {
     for typed_name in domain.types().iter() {
         let name = typed_name.value().to_string();
         let supertype = type_to_string(typed_name.type_());
-        hierarchy.add_type(name, Some(supertype));
+        // Guard against self-loops produced by some PDDL parsers for
+        // declarations like `(:types location disc peg - location)`, where
+        // `location` itself ends up with supertype `location`. Treat a
+        // self-reference as "no supertype" (implicitly `object`).
+        let supertype = if supertype == name {
+            None
+        } else {
+            Some(supertype)
+        };
+        hierarchy.add_type(name, supertype);
     }
 
     Ok(hierarchy)

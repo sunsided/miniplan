@@ -53,14 +53,29 @@ impl TypeHierarchy {
     }
 
     /// Check if `child` is a subtype of `parent` (reflexive).
+    ///
+    /// Walks the supertype chain iteratively with a cycle guard, so a
+    /// malformed hierarchy (self-loop or cycle) returns `false` instead of
+    /// overflowing the stack.
     pub fn is_subtype_of(&self, child: &str, parent: &str) -> bool {
-        if child == parent || parent == "object" {
+        if parent == "object" {
             return true;
         }
-        if let Some(sup) = self.supertypes.get(child) {
-            return self.is_subtype_of(sup, parent);
+        let mut current = child;
+        let mut visited: rustc_hash::FxHashSet<&str> = rustc_hash::FxHashSet::default();
+        loop {
+            if current == parent {
+                return true;
+            }
+            if !visited.insert(current) {
+                // Cycle detected — treat as not a subtype to avoid infinite recursion.
+                return false;
+            }
+            match self.supertypes.get(current) {
+                Some(sup) => current = sup.as_str(),
+                None => return false,
+            }
         }
-        false
     }
 
     /// Add a type with an optional supertype.
