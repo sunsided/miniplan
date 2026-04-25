@@ -1,10 +1,8 @@
 use miniplan::ground::ground;
 use miniplan::heuristic::HFF;
-use miniplan::load_combined_str;
+use miniplan::pddl_io::load_combined_str;
 use miniplan::pddl_io::{load_domain_str, load_problem_str};
-use miniplan::search::astar::Astar;
-use miniplan::search::bfs::Bfs;
-use miniplan::search::{Planner, SearchLimits};
+use miniplan::search::{Astar, Bfs, Planner, SearchLimits};
 
 // Simple gripper-like domain for initial smoke testing
 const SIMPLE_DOMAIN: &str = r#"
@@ -120,17 +118,17 @@ fn test_simple_solve_bfs() {
 
     let outcome = planner.solve(&task, &limits).expect("solve returns");
     match outcome {
-        miniplan::SearchOutcome::Plan(plan, _stats) => {
+        miniplan::search::SearchOutcome::Plan(plan, _stats) => {
             assert!(!plan.is_empty(), "BFS should find a plan");
             eprintln!("Simple BFS plan ({} steps):", plan.len());
             for step in &plan.steps {
                 eprintln!("  {}", step.op_name);
             }
         }
-        miniplan::SearchOutcome::Unsolvable(_) => {
+        miniplan::search::SearchOutcome::Unsolvable(_) => {
             panic!("simple-test should be solvable");
         }
-        miniplan::SearchOutcome::LimitReached(_) => {
+        miniplan::search::SearchOutcome::LimitReached(_) => {
             panic!("BFS should not hit limits on simple-test");
         }
         _ => panic!("unknown outcome"),
@@ -169,7 +167,7 @@ fn test_briefcase_solve_bfs() {
 
     let outcome = planner.solve(&task, &limits).expect("solve returns");
     match outcome {
-        miniplan::SearchOutcome::Plan(plan, stats) => {
+        miniplan::search::SearchOutcome::Plan(plan, stats) => {
             eprintln!(
                 "Briefcase BFS plan ({} steps, expanded {}):",
                 plan.len(),
@@ -180,11 +178,11 @@ fn test_briefcase_solve_bfs() {
             }
             assert!(!plan.is_empty(), "BFS should find a plan");
         }
-        miniplan::SearchOutcome::Unsolvable(stats) => {
+        miniplan::search::SearchOutcome::Unsolvable(stats) => {
             eprintln!("Expanded: {}", stats.nodes_expanded);
             panic!("briefcase-world should be solvable");
         }
-        miniplan::SearchOutcome::LimitReached(_) => {
+        miniplan::search::SearchOutcome::LimitReached(_) => {
             panic!("BFS should not hit limits on briefcase-world");
         }
         _ => panic!("unknown outcome"),
@@ -206,13 +204,13 @@ fn test_briefcase_solve_astar_ff() {
 
     let outcome = planner.solve(&task, &limits).expect("solve returns");
     match outcome {
-        miniplan::SearchOutcome::Plan(plan, _stats) => {
+        miniplan::search::SearchOutcome::Plan(plan, _stats) => {
             assert!(!plan.is_empty(), "A*+FF should find a plan");
         }
-        miniplan::SearchOutcome::Unsolvable(_) => {
+        miniplan::search::SearchOutcome::Unsolvable(_) => {
             panic!("briefcase-world should be solvable");
         }
-        miniplan::SearchOutcome::LimitReached(_) => {
+        miniplan::search::SearchOutcome::LimitReached(_) => {
             panic!("A*+FF should not hit limits on briefcase-world");
         }
         _ => panic!("unknown outcome"),

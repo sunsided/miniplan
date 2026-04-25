@@ -1,7 +1,7 @@
 use pddl::{ActionDefinition, FExp, FHead, Optimization, Problem};
 use pddl::{AssignOp, CEffect, PEffect};
 
-use crate::MiniplanError;
+use crate::error::MiniplanError;
 
 pub fn extract_action_cost(action: &ActionDefinition) -> Result<u32, MiniplanError> {
     let effects = match action.effect() {
@@ -41,6 +41,7 @@ fn extract_numeric_value(exp: &FExp) -> Option<u32> {
     }
 }
 
+#[allow(dead_code)]
 pub fn has_action_costs_metric(problem: &Problem) -> bool {
     if let Some(metric) = problem.metric_spec() {
         matches!(metric.optimization(), Optimization::Minimize)

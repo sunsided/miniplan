@@ -1,9 +1,50 @@
-use crate::Heuristic;
+use crate::search::Heuristic;
 use crate::search::HValue;
 use crate::task::{FactId, OpId, State, Task};
 
+/// The h^add heuristic (Bonet & Geffner, 2001).
+///
+/// Sums the relaxed costs of all goal facts, assuming subgoals are independent.
+/// Not admissible (can overestimate), but often more informed than h^max.
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::heuristic::HAdd;
+/// use miniplan::search::Heuristic;
+///
+/// assert_eq!(HAdd.name(), "hadd");
+/// ```
 pub struct HAdd;
+
+/// The h^max heuristic (Bonet & Geffner, 2001).
+///
+/// Takes the maximum relaxed cost among all goal facts.
+/// Admissible but often weak (underestimates significantly).
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::heuristic::HMax;
+/// use miniplan::search::Heuristic;
+///
+/// assert_eq!(HMax.name(), "hmax");
+/// ```
 pub struct HMax;
+
+/// The FF heuristic (Hoffmann & Nebel, 2001).
+///
+/// Extracts a relaxed plan from the RPG and sums its operator costs.
+/// Not admissible but highly informative in practice.
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::heuristic::HFF;
+/// use miniplan::search::Heuristic;
+///
+/// assert_eq!(HFF.name(), "hff");
+/// ```
 pub struct HFF;
 
 impl Heuristic for HAdd {
@@ -48,7 +89,6 @@ impl Heuristic for HFF {
     }
 
     fn preferred_ops(&self, _task: &Task, _state: &State) -> &[OpId] {
-        // Return preferred operators from relaxed plan extraction
         static EMPTY: [OpId; 0] = [];
         &EMPTY
     }
@@ -75,7 +115,6 @@ fn build_rpg(task: &Task, state: &State) -> RpgResult {
 
     let mut achieved = fixedbitset::FixedBitSet::with_capacity(num_facts);
 
-    // Initialize with facts true in the state
     for bit in state.0.ones() {
         fact_cost[bit] = 0.0;
         achieved.set(bit, true);
@@ -87,17 +126,12 @@ fn build_rpg(task: &Task, state: &State) -> RpgResult {
         let mut level_facts = Vec::new();
         let mut level_ops = Vec::new();
 
-        // Find applicable operators in relaxed mode
         for (op_idx, op) in task.operators.iter().enumerate() {
-            // Check if all pre_pos are achieved
             let pre_satisfied = op.pre_pos.0.ones().all(|b| achieved.contains(b));
-            // Negative preconditions: in delete relaxation, neg preconditions
-            // must NOT be true in the current state (or any achieved fact)
             let neg_satisfied = op.pre_neg.0.ones().all(|b| !achieved.contains(b));
 
             if pre_satisfied && neg_satisfied {
                 let _op_cost = if level_ops.is_empty() {
-                    // First applicable op, cost is max of preconditions
                     op.pre_pos
                         .0
                         .ones()
@@ -105,7 +139,6 @@ fn build_rpg(task: &Task, state: &State) -> RpgResult {
                         .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                         .unwrap_or(0.0)
                 } else {
-                    // Reuse previous level's costs
                     0.0
                 };
 
@@ -123,7 +156,6 @@ fn build_rpg(task: &Task, state: &State) -> RpgResult {
                     }
                 }
 
-                // Handle conditional effects
                 for cond in &op.conditional {
                     let cond_satisfied = cond.cond_pos.0.ones().all(|b| achieved.contains(b))
                         && cond.cond_neg.0.ones().all(|b| !achieved.contains(b));
@@ -157,7 +189,6 @@ fn build_rpg(task: &Task, state: &State) -> RpgResult {
             });
         }
 
-        // Safety: prevent infinite loops
         if levels.len() > num_facts * 2 {
             break;
         }
@@ -170,7 +201,7 @@ fn build_rpg(task: &Task, state: &State) -> RpgResult {
     }
 }
 
-pub fn rpg_fact_costs(task: &Task, state: &State) -> Vec<f64> {
+pub(crate) fn rpg_fact_costs(task: &Task, state: &State) -> Vec<f64> {
     build_rpg(task, state).fact_cost
 }
 
@@ -178,7 +209,6 @@ fn extract_relaxed_plan_cost(task: &Task, rpg: &RpgResult) -> f64 {
     let mut marked_ops = std::collections::HashSet::new();
     let mut total_cost = 0.0;
 
-    // Extract relaxed plan backwards from goals
     let mut goals_to_achieve: Vec<FactId> = task
         .goal_pos
         .0
@@ -201,7 +231,6 @@ fn extract_relaxed_plan_cost(task: &Task, rpg: &RpgResult) -> f64 {
             marked_ops.insert(op_idx);
             if let Some(op) = task.operators.get(op_idx) {
                 total_cost += op.cost as f64;
-                // Add preconditions to achieve
                 for pre_bit in op.pre_pos.0.ones() {
                     if !visited.contains(&FactId(pre_bit)) {
                         goals_to_achieve.push(FactId(pre_bit));

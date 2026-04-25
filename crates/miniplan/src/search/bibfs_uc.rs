@@ -16,10 +16,25 @@ use crate::task::{OpId, Operator, State};
 
 type SubgoalKey = (State, State);
 
+/// Bidirectional breadth-first search (uniform-cost).
+///
+/// Searches forward from the initial state and backward from the goal
+/// simultaneously, meeting in the middle. Faster than unidirectional BFS
+/// but does not account for action costs.
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::search::{BibfsUc, Planner};
+///
+/// let planner = BibfsUc::new();
+/// assert_eq!(planner.name(), "bibfs-uc");
+/// ```
 #[derive(Default)]
 pub struct BibfsUc {}
 
 impl BibfsUc {
+    /// Create a new bidirectional BFS planner.
     pub fn new() -> Self {
         Self::default()
     }
@@ -290,7 +305,7 @@ fn reconstruct_plan(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::search::bfs::Bfs;
+    use crate::search::Bfs;
     use crate::task::{CondEffect, Fact, FactId, Task, TaskMeta, TypeHierarchy};
     use rustc_hash::FxHashMap;
 

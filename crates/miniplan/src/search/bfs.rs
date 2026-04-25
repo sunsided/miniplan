@@ -5,10 +5,24 @@ use crate::error::MiniplanError;
 use crate::plan::{Plan, PlanStep};
 use crate::search::{Planner, PlannerCapabilities, SearchLimits, SearchOutcome, SearchStats, Task};
 
+/// Breadth-first search planner.
+///
+/// Explores the state space level by level, guaranteeing the shortest
+/// (fewest-step) plan. Does not support action costs.
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::search::{Bfs, Planner};
+///
+/// let planner = Bfs::new();
+/// assert_eq!(planner.name(), "bfs");
+/// ```
 #[derive(Default)]
 pub struct Bfs {}
 
 impl Bfs {
+    /// Create a new BFS planner.
     pub fn new() -> Self {
         Self::default()
     }

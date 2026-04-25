@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::time::Instant;
 
-use crate::Heuristic;
+use crate::search::Heuristic;
 use crate::error::MiniplanError;
 use crate::plan::{Plan, PlanStep};
 use crate::search::{
@@ -43,11 +43,27 @@ impl Ord for AstarNode {
     }
 }
 
+/// A* search with a pluggable heuristic.
+///
+/// A* expands nodes in order of `f = g + h`, where `g` is the cost from the
+/// start and `h` is the heuristic estimate to the goal. With an admissible
+/// heuristic, A* guarantees optimal solutions.
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::search::{Astar, Planner};
+/// use miniplan::heuristic::HFF;
+///
+/// let planner = Astar::new(Box::new(HFF));
+/// assert_eq!(planner.name(), "astar");
+/// ```
 pub struct Astar {
     heuristic: Box<dyn Heuristic>,
 }
 
 impl Astar {
+    /// Create a new A* planner with the given heuristic.
     pub fn new(heuristic: Box<dyn Heuristic>) -> Self {
         Astar { heuristic }
     }

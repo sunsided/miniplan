@@ -1,9 +1,7 @@
 use miniplan::ground::ground;
 use miniplan::heuristic::{BlindHeuristic, HFF};
 use miniplan::pddl_io::{load_domain_str, load_problem_str};
-use miniplan::search::astar::Astar;
-use miniplan::search::bfs::Bfs;
-use miniplan::search::{Planner, SearchLimits, SearchOutcome};
+use miniplan::search::{Astar, Bfs, Planner, SearchLimits, SearchOutcome};
 
 const DOMAIN: &str = r#"
 (define (domain briefcase-world)
@@ -63,7 +61,7 @@ fn main() {
     solve_with(&mut Astar::new(Box::new(BlindHeuristic)), &task, &limits);
 }
 
-fn solve_with<P: Planner>(planner: &mut P, task: &miniplan::Task, limits: &SearchLimits) {
+fn solve_with<P: Planner>(planner: &mut P, task: &miniplan::task::Task, limits: &SearchLimits) {
     match planner.solve(task, limits).expect("solve returns") {
         SearchOutcome::Plan(plan, stats) => {
             println!(

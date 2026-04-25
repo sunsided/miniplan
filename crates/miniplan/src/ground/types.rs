@@ -1,7 +1,7 @@
 use indexmap::IndexMap;
 use pddl::{Domain, Problem, Type};
 
-use crate::MiniplanError;
+use crate::error::MiniplanError;
 use crate::task::{Object, TypeHierarchy};
 
 pub fn extract_types(domain: &Domain) -> Result<TypeHierarchy, MiniplanError> {

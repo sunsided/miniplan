@@ -1,3 +1,22 @@
+//! PDDL file loading utilities.
+//!
+//! This module provides functions to load PDDL domain and problem definitions
+//! from strings, files, or multiple files. It wraps the `pddl` crate's parser.
+//!
+//! # Examples
+//!
+//! ```
+//! use miniplan::pddl_io::load_domain_str;
+//!
+//! let domain = load_domain_str(r#"
+//! (define (domain test)
+//!   (:requirements :strips)
+//!   (:predicates (a))
+//! )
+//! "#).expect("domain parses");
+//! assert_eq!(domain.name().to_string(), "test");
+//! ```
+
 use std::fs;
 use std::path::Path;
 
@@ -7,19 +26,51 @@ pub use pddl::PddlFile;
 
 use crate::error::MiniplanError;
 
+/// Parse a PDDL domain from a string.
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::pddl_io::load_domain_str;
+///
+/// let domain = load_domain_str(r#"
+/// (define (domain my-domain)
+///   (:requirements :strips)
+///   (:predicates (x))
+/// )
+/// "#).expect("domain parses");
+/// assert_eq!(domain.name().to_string(), "my-domain");
+/// ```
 pub fn load_domain_str(s: &str) -> Result<Domain, MiniplanError> {
     Domain::from_str(s).map_err(|e| MiniplanError::Parse(e.to_string()))
 }
 
+/// Parse a PDDL problem from a string.
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::pddl_io::load_problem_str;
+///
+/// let problem = load_problem_str(r#"
+/// (define (problem my-problem)
+///   (:domain test)
+///   (:init)
+///   (:goal (and)))
+/// "#).expect("problem parses");
+/// assert_eq!(problem.name().to_string(), "my-problem");
+/// ```
 pub fn load_problem_str(s: &str) -> Result<Problem, MiniplanError> {
     Problem::from_str(s).map_err(|e| MiniplanError::Parse(e.to_string()))
 }
 
+/// Load a PDDL domain from a file path.
 pub fn load_domain_path(path: &Path) -> Result<Domain, MiniplanError> {
     let s = fs::read_to_string(path).map_err(MiniplanError::Io)?;
     load_domain_str(&s)
 }
 
+/// Load a PDDL problem from a file path.
 pub fn load_problem_path(path: &Path) -> Result<Problem, MiniplanError> {
     let s = fs::read_to_string(path).map_err(MiniplanError::Io)?;
     load_problem_str(&s)
@@ -51,6 +102,27 @@ fn problem_names(problems: &[Problem]) -> String {
         .join(", ")
 }
 
+/// Load a combined PDDL file (domain + problem) from a string.
+///
+/// Errors if there isn't exactly one domain and one problem definition.
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::pddl_io::load_combined_str;
+///
+/// let (domain, problem) = load_combined_str(r#"
+/// (define (domain test)
+///   (:requirements :strips)
+///   (:predicates (a))
+/// )
+/// (define (problem test-1)
+///   (:domain test)
+///   (:init)
+///   (:goal (a)))
+/// "#).expect("parses");
+/// assert_eq!(domain.name().to_string(), "test");
+/// ```
 pub fn load_combined_str(s: &str) -> Result<(Domain, Problem), MiniplanError> {
     let parsed = load_pddl_file_str(s)?;
 
@@ -78,6 +150,7 @@ pub fn load_combined_str(s: &str) -> Result<(Domain, Problem), MiniplanError> {
     Ok((parsed.domains[0].clone(), parsed.problems[0].clone()))
 }
 
+/// Load a combined PDDL file, selecting by name if multiple definitions exist.
 pub fn load_combined_str_named(
     s: &str,
     domain_name: Option<&str>,
@@ -170,10 +243,12 @@ fn merge_pddl_files(files: &[PddlFile]) -> PddlFile {
     PddlFile { domains, problems }
 }
 
+/// Load a domain and problem from one or two file paths.
 pub fn load_files(paths: &[impl AsRef<Path>]) -> Result<(Domain, Problem), MiniplanError> {
     load_files_named(paths, None, None)
 }
 
+/// Load from files with optional name selection.
 pub fn load_files_named(
     paths: &[impl AsRef<Path>],
     domain_name: Option<&str>,
@@ -253,11 +328,15 @@ pub fn load_files_named(
     }
 }
 
+/// A collection of loaded PDDL domains and problems with their source paths.
 pub struct PddlBundle {
+    /// Domains paired with their source file paths.
     pub domains: Vec<(std::path::PathBuf, Domain)>,
+    /// Problems paired with their source file paths.
     pub problems: Vec<(std::path::PathBuf, Problem)>,
 }
 
+/// Load a bundle of PDDL files, extracting all domain and problem definitions.
 pub fn load_pddl_bundle(paths: &[impl AsRef<Path>]) -> Result<PddlBundle, MiniplanError> {
     let mut domains = Vec::new();
     let mut problems = Vec::new();

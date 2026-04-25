@@ -1,8 +1,7 @@
 use miniplan::ground::ground;
 use miniplan::heuristic::HFF;
 use miniplan::pddl_io::{PddlFile, load_combined_str, load_combined_str_named};
-use miniplan::search::astar::Astar;
-use miniplan::search::{Planner, SearchLimits};
+use miniplan::search::{Astar, Planner, SearchLimits};
 use pddl::Parser;
 
 const AIR_CARGO_SRC: &str = include_str!("../../../examples/pddl/air-cargo.pddl");
@@ -78,9 +77,9 @@ fn solve_with_ff(src: &str, problem_name: &str) -> usize {
 
     let outcome = planner.solve(&task, &limits).expect("solve should return");
     match outcome {
-        miniplan::SearchOutcome::Plan(plan, _stats) => plan.len(),
-        miniplan::SearchOutcome::Unsolvable(_) => panic!("{} should be solvable", problem_name),
-        miniplan::SearchOutcome::LimitReached(_) => {
+        miniplan::search::SearchOutcome::Plan(plan, _stats) => plan.len(),
+        miniplan::search::SearchOutcome::Unsolvable(_) => panic!("{} should be solvable", problem_name),
+        miniplan::search::SearchOutcome::LimitReached(_) => {
             panic!("{} hit search limits", problem_name)
         }
         _ => panic!("unknown outcome for {}", problem_name),

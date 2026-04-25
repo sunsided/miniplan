@@ -6,7 +6,7 @@ use fixedbitset::FixedBitSet;
 use rustc_hash::FxHashMap;
 
 use crate::error::MiniplanError;
-use crate::heuristic::relaxed::rpg_fact_costs;
+use crate::heuristic::{rpg_fact_costs, HFF};
 use crate::plan::{Plan, PlanStep};
 use crate::search::{
     Heuristic, Planner, PlannerCapabilities, SearchLimits, SearchOutcome, SearchStats,
@@ -125,17 +125,36 @@ impl Ord for BackwardNodeG {
     }
 }
 
+/// Near-Optimal Bidirectional Search (NBS, Chen et al. 2017).
+///
+/// A bidirectional heuristic search that uses front-to-front evaluation
+/// with per-fact arena indexing for efficient meet detection. Guarantees
+/// optimal plans when using admissible heuristics.
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::search::{Nbs, Planner};
+/// use miniplan::heuristic::HFF;
+///
+/// let planner = Nbs::new(Box::new(HFF));
+/// assert_eq!(planner.name(), "nbs");
+///
+/// let planner = Nbs::with_defaults();
+/// ```
 pub struct Nbs {
     h_forward: Box<dyn Heuristic>,
 }
 
 impl Nbs {
+    /// Create a new NBS planner with the given forward heuristic.
     pub fn new(h_forward: Box<dyn Heuristic>) -> Self {
         Self { h_forward }
     }
 
+    /// Create an NBS planner with default heuristic (HFF).
     pub fn with_defaults() -> Self {
-        Self::new(Box::new(crate::heuristic::relaxed::HFF))
+        Self::new(Box::new(HFF))
     }
 }
 
@@ -620,10 +639,8 @@ impl Planner for Nbs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::heuristic::relaxed::HFF;
-    use crate::search::astar::Astar;
-    use crate::search::bibfs_uc::BibfsUc;
-    use crate::search::bidij::BiDij;
+    use crate::heuristic::HFF;
+    use crate::search::{Astar, BibfsUc, BiDij};
     use crate::task::{CondEffect, Fact, FactId, Task, TaskMeta, TypeHierarchy};
     use rustc_hash::FxHashMap;
 

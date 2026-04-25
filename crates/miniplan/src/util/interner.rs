@@ -1,11 +1,13 @@
 use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct Interner {
     map: FxHashMap<String, usize>,
     rev: Vec<String>,
 }
 
+#[allow(dead_code)]
 impl Interner {
     pub fn new() -> Self {
         Self::default()

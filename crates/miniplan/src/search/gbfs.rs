@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::time::Instant;
 
-use crate::Heuristic;
+use crate::search::Heuristic;
 use crate::error::MiniplanError;
 use crate::plan::{Plan, PlanStep};
 use crate::search::{
@@ -42,11 +42,26 @@ impl Ord for GbfsNode {
     }
 }
 
+/// Greedy best-first search with a pluggable heuristic.
+///
+/// Expands the node with the lowest heuristic value `h`, ignoring path cost.
+/// Fast but does not guarantee optimality.
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::search::{Gbfs, Planner};
+/// use miniplan::heuristic::HFF;
+///
+/// let planner = Gbfs::new(Box::new(HFF));
+/// assert_eq!(planner.name(), "gbfs");
+/// ```
 pub struct Gbfs {
     heuristic: Box<dyn Heuristic>,
 }
 
 impl Gbfs {
+    /// Create a new GBFS planner with the given heuristic.
     pub fn new(heuristic: Box<dyn Heuristic>) -> Self {
         Gbfs { heuristic }
     }

@@ -1,7 +1,7 @@
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
-use miniplan::MiniplanError;
+use miniplan::error::MiniplanError;
 use miniplan::search::{PlannerChoice, SearchLimits, SearchOutcome, Solver};
 use miniplan::task::Task;
 

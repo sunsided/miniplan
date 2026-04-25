@@ -1,16 +1,34 @@
+//! Plan representation.
+
 use std::fmt;
 
 use crate::task::OpId;
 
+/// A single step in a plan.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlanStep {
+    /// The operator ID executed in this step.
     pub op_id: OpId,
+    /// The human-readable operator name.
     pub op_name: String,
 }
 
+/// A sequence of operator applications that achieves the goal.
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::plan::Plan;
+///
+/// let plan = Plan::new();
+/// assert!(plan.is_empty());
+/// assert_eq!(plan.len(), 0);
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct Plan {
+    /// Ordered list of plan steps.
     pub steps: Vec<PlanStep>,
+    /// Total cost of the plan.
     pub cost: f64,
 }
 
@@ -24,14 +42,17 @@ impl Default for Plan {
 }
 
 impl Plan {
+    /// Create an empty plan.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns `true` if the plan has no steps.
     pub fn is_empty(&self) -> bool {
         self.steps.is_empty()
     }
 
+    /// Returns the number of steps in the plan.
     pub fn len(&self) -> usize {
         self.steps.len()
     }

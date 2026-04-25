@@ -70,10 +70,25 @@ impl Ord for BackwardNode {
     }
 }
 
+/// Bidirectional Dijkstra's algorithm (cost-aware).
+///
+/// Searches forward from the initial state and backward from the goal
+/// simultaneously, expanding the side with the lowest `g` value.
+/// Guarantees optimal (minimum-cost) plans.
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::search::{BiDij, Planner};
+///
+/// let planner = BiDij::new();
+/// assert_eq!(planner.name(), "bidij");
+/// ```
 #[derive(Default)]
 pub struct BiDij {}
 
 impl BiDij {
+    /// Create a new bidirectional Dijkstra planner.
     pub fn new() -> Self {
         Self::default()
     }
@@ -429,9 +444,8 @@ fn reconstruct_plan_from_meet(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::heuristic::relaxed::HFF;
-    use crate::search::astar::Astar;
-    use crate::search::bibfs_uc::BibfsUc;
+    use crate::heuristic::HFF;
+    use crate::search::{Astar, BibfsUc};
     use crate::task::{CondEffect, Fact, FactId, Task, TaskMeta, TypeHierarchy};
     use rustc_hash::FxHashMap;
 

@@ -1,8 +1,7 @@
 use miniplan::ground::ground;
 use miniplan::heuristic::HFF;
 use miniplan::pddl_io::{load_domain_str, load_problem_str};
-use miniplan::search::astar::Astar;
-use miniplan::search::{Planner, SearchLimits, SearchOutcome};
+use miniplan::search::{Astar, Planner, SearchLimits, SearchOutcome};
 
 const DOMAIN: &str = r#"
 (define (domain simple-test)

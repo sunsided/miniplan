@@ -1,13 +1,18 @@
 use pddl::{ActionDefinition, Domain, GoalDefinition, Problem, StructureDef};
 use pddl::{InitElement, PreconditionGoalDefinition};
 
-use crate::MiniplanError;
+use crate::error::MiniplanError;
 use crate::ground::cost::extract_action_cost;
 use crate::ground::effect::extract_effects;
 use crate::ground::formula::{build_state_from_literals, walk_goal_definition};
 use crate::ground::types::{extract_objects, extract_types, objects_of_type};
 use crate::task::{Fact, FactId, Object, OpId, Operator, State, Task, TaskMeta, TypeHierarchy};
 
+/// Ground a PDDL domain and problem into a [`Task`](crate::task::Task).
+///
+/// This is the main entry point for grounding. It extracts types, objects,
+/// builds a fact universe, grounds all operators, and constructs the initial
+/// state and goal specification.
 pub fn ground(domain: &Domain, problem: &Problem) -> Result<Task, MiniplanError> {
     let types = extract_types(domain)?;
     let objects = extract_objects(domain, problem, &types)?;

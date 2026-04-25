@@ -6,7 +6,7 @@ use fixedbitset::FixedBitSet;
 use rustc_hash::FxHashMap;
 
 use crate::error::MiniplanError;
-use crate::heuristic::relaxed::{rpg_backward_fact_costs, rpg_fact_costs};
+use crate::heuristic::{rpg_backward_fact_costs, rpg_fact_costs, HFF};
 use crate::plan::{Plan, PlanStep};
 use crate::search::{
     Heuristic, Planner, PlannerCapabilities, SearchLimits, SearchOutcome, SearchStats,
@@ -181,17 +181,37 @@ impl Ord for BackwardNodeG {
     }
 }
 
+/// Bidirectional A* with Error (BAE*, Sadhukhan 2013).
+///
+/// A bidirectional search that uses the B-evaluation function
+/// `b = 2g + h_f - h_b` to prioritize expansions, combined with
+/// f and g orderings for termination detection. Guarantees optimal
+/// plans when using admissible heuristics.
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::search::{Bae, Planner};
+/// use miniplan::heuristic::HFF;
+///
+/// let planner = Bae::new(Box::new(HFF));
+/// assert_eq!(planner.name(), "bae");
+///
+/// let planner = Bae::with_defaults();
+/// ```
 pub struct Bae {
     h_forward: Box<dyn Heuristic>,
 }
 
 impl Bae {
+    /// Create a new BAE* planner with the given forward heuristic.
     pub fn new(h_forward: Box<dyn Heuristic>) -> Self {
         Self { h_forward }
     }
 
+    /// Create a BAE* planner with default heuristic (HFF).
     pub fn with_defaults() -> Self {
-        Self::new(Box::new(crate::heuristic::relaxed::HFF))
+        Self::new(Box::new(HFF))
     }
 }
 
@@ -791,11 +811,8 @@ impl Planner for Bae {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::heuristic::relaxed::HFF;
-    use crate::search::astar::Astar;
-    use crate::search::bibfs_uc::BibfsUc;
-    use crate::search::bidij::BiDij;
-    use crate::search::nbs::Nbs;
+    use crate::heuristic::HFF;
+    use crate::search::{Astar, BibfsUc, BiDij, Nbs};
     use crate::task::{CondEffect, Fact, FactId, Task, TaskMeta, TypeHierarchy};
     use rustc_hash::FxHashMap;
 

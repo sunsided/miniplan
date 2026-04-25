@@ -1,7 +1,20 @@
-use crate::Heuristic;
+use crate::search::Heuristic;
 use crate::search::HValue;
 use crate::task::{State, Task};
 
+/// A heuristic that counts the number of unsatisfied positive goal facts.
+///
+/// This is a simple, fast heuristic that is not admissible in general
+/// (it underestimates the true cost when multiple goals interact).
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::heuristic::GoalCountHeuristic;
+/// use miniplan::search::Heuristic;
+///
+/// assert_eq!(GoalCountHeuristic.name(), "goal-count");
+/// ```
 pub struct GoalCountHeuristic;
 
 impl Heuristic for GoalCountHeuristic {
