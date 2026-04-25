@@ -154,6 +154,7 @@ impl Registry {
         use crate::heuristic::blind::BlindHeuristic;
         use crate::heuristic::goal_count::GoalCountHeuristic;
         use crate::heuristic::relaxed::{HAdd, HFF, HMax};
+        use crate::heuristic::zero::HZero;
         use crate::search::astar::Astar;
         use crate::search::bfs::Bfs;
         use crate::search::bidij::BiDij;
@@ -214,8 +215,16 @@ impl Registry {
             capabilities: PlannerCapabilities::CLASSICAL
                 | PlannerCapabilities::NEGATIVE_PRECONDS
                 | PlannerCapabilities::ACTION_COSTS,
-            factory: std::sync::Arc::new(|_cfg| {
-                let h = Box::new(HFF);
+            factory: std::sync::Arc::new(|cfg| {
+                let h_name = cfg.opts.get("heuristic").map(|s| s.as_str()).unwrap_or("hff");
+                let h: Box<dyn crate::search::Heuristic> = match h_name {
+                    "hadd" => Box::new(HAdd),
+                    "hmax" => Box::new(HMax),
+                    "hff" => Box::new(HFF),
+                    "blind" => Box::new(crate::heuristic::BlindHeuristic),
+                    "zero" => Box::new(HZero),
+                    _ => Box::new(HFF),
+                };
                 Ok(Box::new(binbs::Nbs::new(h)))
             }),
         });
@@ -243,6 +252,11 @@ impl Registry {
         self.register_heuristic(RegisteredHeuristic {
             name: "hff",
             factory: std::sync::Arc::new(|_cfg| Ok(Box::new(HFF))),
+        });
+
+        self.register_heuristic(RegisteredHeuristic {
+            name: "zero",
+            factory: std::sync::Arc::new(|_cfg| Ok(Box::new(HZero))),
         });
     }
 

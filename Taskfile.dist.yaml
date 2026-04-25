@@ -156,6 +156,16 @@ tasks:
     cmds:
       - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --stats examples/pddl/gripper.pddl"
 
+  example:gripper:binbs:zero:
+    desc: Solve gripper-4 with NBS + h=0 (degenerates to bidirectional uniform-cost search)
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --heuristic zero --stats examples/pddl/gripper.pddl"
+
+  example:gripper:binbs:hmax:
+    desc: Solve gripper-4 with NBS + hMax (admissible, provably optimal)
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --heuristic hmax --stats examples/pddl/gripper.pddl"
+
   example:logistics:
     desc: Solve the logistics-simple problem (2 packages, 2 locations)
     cmds:
@@ -198,6 +208,11 @@ tasks:
     cmds:
       - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --problem air-cargo-p3 --stats examples/pddl/air-cargo.pddl"
 
+  example:air-cargo:binbs:zero:
+    desc: "Solve air-cargo-p3 with NBS + h=0 (degenerates to bidirectional uniform-cost search)"
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --heuristic zero --problem air-cargo-p3 --stats examples/pddl/air-cargo.pddl"
+
   example:air-cargo:showoff:
     desc: "Air Cargo P3 - GBFS (fast, non-optimal) vs A*+hFF (optimal: 13 actions, slower)"
     cmds:
@@ -234,8 +249,20 @@ tasks:
       - echo "=== BiDij (Bidirectional Dijkstra, cost-aware optimal) ==="
       - "{{.CARGO}} run --bin miniplan -- solve --planner bidij --stats examples/pddl/gripper.pddl"
       - echo ""
-      - echo "=== NBS (Near-Optimal Bidirectional Search, Chen et al. 2017) ==="
+      - echo "=== NBS + hFF (Near-Optimal Bidirectional Search) ==="
       - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --stats examples/pddl/gripper.pddl"
+
+  example:compare:binbs-heuristics:
+    desc: Solve gripper-4 with NBS using hFF, hMax, and h=0 side by side
+    cmds:
+      - echo "=== NBS + hFF (inadmissible, fast) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --heuristic hff --stats examples/pddl/gripper.pddl"
+      - echo ""
+      - echo "=== NBS + hMax (admissible, provably optimal) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --heuristic hmax --stats examples/pddl/gripper.pddl"
+      - echo ""
+      - echo "=== NBS + h=0 (degenerates to bidirectional Dijkstra) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --heuristic zero --stats examples/pddl/gripper.pddl"
 
   example:check:
     desc: Ground all example problems without searching
