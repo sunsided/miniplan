@@ -38,7 +38,6 @@ A PDDL planner library built around the [`pddl`](https://github.com/sunsided/pdd
 ```toml
 [dependencies]
 miniplan = "0.1"
-pddl = { git = "https://github.com/sunsided/pddl-rs", branch = "main" }
 ```
 
 > **Note:** The `pddl` dependency is currently sourced from a git branch rather than crates.io. Until a release is published, library users must add `pddl` via the same git source shown above.
