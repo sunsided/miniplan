@@ -1,6 +1,6 @@
 # miniplan
 
-A small, fast PDDL planner written in Rust.
+A PDDL planner library built around the [`pddl`](https://github.com/sunsided/pddl-rs) crate.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/sunsided/miniplan/ci.yml?branch=main&label=CI)](https://github.com/sunsided/miniplan/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/miniplan)](https://crates.io/crates/miniplan)

@@ -1,6 +1,6 @@
 [package]
 name = "miniplan"
-description = "A minimal PDDL planner library"
+description = "A PDDL planner library built around the pddl crate, with grounding and search utilities"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

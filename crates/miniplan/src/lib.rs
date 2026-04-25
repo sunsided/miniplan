@@ -1,21 +1,32 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-//! A PDDL planning library with multiple search algorithms.
+//! A PDDL planner library built around the [`pddl`](https://crates.io/crates/pddl) crate.
 //!
-//! `miniplan` is a Rust library for parsing, grounding, and solving PDDL planning
-//! tasks. It provides a collection of search algorithms (planners) and heuristic
-//! functions, accessible through a registry-based API.
+//! `miniplan` is primarily a **planner** — it takes a parsed PDDL domain and problem,
+//! grounds them into a state-space representation, and solves them using a collection
+//! of search algorithms (planners) and heuristic functions. PDDL parsing and loading
+//! utilities are re-exported from the `pddl` crate for convenience.
+//!
+//! # Architecture
+//!
+//! 1. **Parse** — use `pddl::Parser` (re-exported via [`pddl_io`]) to load PDDL.
+//! 2. **Ground** — call [`ground::ground`] to convert the parsed domain and problem
+//!    into a [`task::Task`] with grounded facts and operators.
+//! 3. **Solve** — use the [`search::Solver`] and [`search::Registry`] to pick a
+//!    planner and search for a plan.
 //!
 //! # Modules
 //!
-//! - [`error`] — error types for parsing, grounding, and search.
-//! - [`ground`] — grounding functions that convert PDDL to a state-space representation.
+//! - [`search`] — search algorithms (BFS, A*, GBFS, bidirectional variants)
+//!   and the planner registry.
 //! - [`heuristic`] — heuristic functions (h^add, h^max, h^FF, etc.).
-//! - [`pddl_io`] — PDDL file loading utilities.
-//! - [`plan`] — plan representation.
-//! - [`search`] — search algorithms and the planner registry.
+//! - [`ground`] — grounding functions that convert PDDL to a state-space representation.
 //! - [`task`] — grounded task representation (facts, operators, states).
+//! - [`plan`] — plan representation and formatting.
+//! - [`pddl_io`] — convenience wrappers around `pddl::Parser` for loading PDDL
+//!   from strings, files, or multiple files.
+//! - [`error`] — error types for parsing, grounding, and search.
 //!
 //! # Getting started
 //!
