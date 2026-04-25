@@ -1,5 +1,6 @@
 pub mod astar;
 pub mod bfs;
+pub mod bidij;
 pub mod bibfs_uc;
 pub mod gbfs;
 
@@ -154,6 +155,7 @@ impl Registry {
         use crate::heuristic::relaxed::{HAdd, HFF, HMax};
         use crate::search::astar::Astar;
         use crate::search::bfs::Bfs;
+        use crate::search::bidij::BiDij;
         use crate::search::bibfs_uc::BibfsUc;
         use crate::search::gbfs::Gbfs;
 
@@ -194,6 +196,15 @@ impl Registry {
             description: "Bidirectional BFS (uniform-cost, not cost-aware)",
             capabilities: PlannerCapabilities::CLASSICAL | PlannerCapabilities::NEGATIVE_PRECONDS,
             factory: std::sync::Arc::new(|_cfg| Ok(Box::new(BibfsUc::new()))),
+        });
+
+        self.register_planner(RegisteredPlanner {
+            name: "bidij",
+            description: "Bidirectional Dijkstra (cost-aware)",
+            capabilities: PlannerCapabilities::CLASSICAL
+                | PlannerCapabilities::NEGATIVE_PRECONDS
+                | PlannerCapabilities::ACTION_COSTS,
+            factory: std::sync::Arc::new(|_cfg| Ok(Box::new(BiDij::new()))),
         });
 
         self.register_heuristic(RegisteredHeuristic {

@@ -86,19 +86,20 @@ tasks:
       - example
       - examples
     cmds:
-      - task: example:blocksworld
-        vars:
-          PLANNER: astar
-      - task: example:gripper-small
-        vars:
-          PLANNER: bfs
-      - task: example:gripper:astar
-      - task: example:logistics
-        vars:
-          PLANNER: bfs
-      - task: example:air-cargo:astar
-      - task: example:compare
-      - task: example:air-cargo:showoff
+       - task: example:blocksworld
+         vars:
+           PLANNER: astar
+       - task: example:gripper-small
+         vars:
+           PLANNER: bfs
+       - task: example:gripper:astar
+       - task: example:logistics
+         vars:
+           PLANNER: bfs
+       - task: example:air-cargo:astar
+       - task: example:compare
+       - task: example:air-cargo:showoff
+       - task: example:gripper:bidij
 
   example:blocksworld:
     desc: Solve the blocksworld-4 problem (4 blocks, tower stacking)
@@ -107,7 +108,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc]
     vars:
       PLANNER: '{{.PLANNER | default "astar"}}'
 
@@ -118,7 +119,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc]
     vars:
       PLANNER: '{{.PLANNER | default "bfs"}}'
 
@@ -129,7 +130,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc]
     vars:
       PLANNER: '{{.PLANNER | default "astar"}}'
 
@@ -143,6 +144,11 @@ tasks:
     cmds:
       - "{{.CARGO}} run --bin miniplan -- solve --planner astar --stats examples/pddl/gripper.pddl"
 
+  example:gripper:bidij:
+    desc: Solve gripper-4 with BiDij (Bidirectional Dijkstra, cost-aware optimal)
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bidij --stats examples/pddl/gripper.pddl"
+
   example:logistics:
     desc: Solve the logistics-simple problem (2 packages, 2 locations)
     cmds:
@@ -150,7 +156,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc]
     vars:
       PLANNER: '{{.PLANNER | default "bfs"}}'
 
@@ -161,7 +167,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc]
     vars:
       PLANNER: '{{.PLANNER | default "astar"}}'
 
@@ -174,6 +180,11 @@ tasks:
     desc: "Solve air-cargo-p3 with A* + hFF (optimal: 13 actions)"
     cmds:
       - "{{.CARGO}} run --bin miniplan -- solve --planner astar --problem air-cargo-p3 --stats examples/pddl/air-cargo.pddl"
+
+  example:air-cargo:bidij:
+    desc: "Solve air-cargo-p3 with BiDij (Bidirectional Dijkstra, cost-aware optimal)"
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bidij --problem air-cargo-p3 --stats examples/pddl/air-cargo.pddl"
 
   example:air-cargo:showoff:
     desc: "Air Cargo P3 - GBFS (fast, non-optimal) vs A*+hFF (optimal: 13 actions, slower)"
@@ -192,6 +203,15 @@ tasks:
       - echo ""
       - echo "=== A* + hFF (optimal, fewer nodes, higher per-node cost) ==="
       - "{{.CARGO}} run --bin miniplan -- solve --planner astar --stats examples/pddl/gripper.pddl"
+
+  example:compare:bidij:
+    desc: Solve gripper-4 with A* and BiDij side by side
+    cmds:
+      - echo "=== A* + hFF (optimal, forward-only) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner astar --stats examples/pddl/gripper.pddl"
+      - echo ""
+      - echo "=== BiDij (Bidirectional Dijkstra, cost-aware optimal) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bidij --stats examples/pddl/gripper.pddl"
 
   example:check:
     desc: Ground all example problems without searching

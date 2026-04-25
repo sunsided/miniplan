@@ -1,4 +1,5 @@
-// TODO(cost-aware): implement BAE*/NBS variant for non-uniform costs
+// Note: for cost-aware bidirectional search, use the `bibfs-cost` planner
+// (Bidirectional Dijkstra). BAE*/NBS variants would extend it with heuristics.
 // TODO(cond-effects): support via regression through conditional effects
 // TODO(perf): per-FactId bucket index to avoid O(|F|·|B|) scan
 
