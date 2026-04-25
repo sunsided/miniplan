@@ -480,10 +480,10 @@ impl Registry {
 /// # Examples
 ///
 /// ```
-/// use miniplan::search::{Solver, PlannerChoice, PlannerConfig, SearchLimits};
+/// use miniplan::search::{Solver, PlannerChoice, PlannerKind, PlannerConfig, SearchLimits};
 ///
 /// let solver = Solver::new();
-/// let choice = PlannerChoice::new("bfs");
+/// let choice = PlannerChoice::new(PlannerKind::Bfs);
 /// let limits = SearchLimits::default();
 /// // solver.solve_task(&task, &choice, &limits); // needs a Task
 /// ```
@@ -515,8 +515,87 @@ impl Solver {
     ) -> Result<SearchOutcome, MiniplanError> {
         let mut planner = self
             .registry
-            .build_planner(&choice.planner, &choice.config)?;
+            .build_planner(choice.kind.name(), &choice.config)?;
         planner.solve(task, limits)
+    }
+}
+
+/// Built-in planner types.
+///
+/// Use these variants to select a planner in a type-safe way.
+/// Each variant corresponds to a planner registered in [`Registry::with_builtins`].
+///
+/// # Examples
+///
+/// ```
+/// use miniplan::search::PlannerKind;
+///
+/// let kind: PlannerKind = "astar".parse().unwrap();
+/// assert_eq!(kind, PlannerKind::Astar);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlannerKind {
+    /// Breadth-first search.
+    Bfs,
+    /// A* search with pluggable heuristic.
+    Astar,
+    /// Greedy best-first search.
+    Gbfs,
+    /// Bidirectional BFS (uniform-cost, not cost-aware).
+    BibfsUc,
+    /// Bidirectional Dijkstra (cost-aware).
+    BiDij,
+    /// Near-Optimal Bidirectional Search (Chen et al. 2017).
+    Nbs,
+    /// Bidirectional A* with Error (BAE*, Sadhukhan 2013).
+    Bae,
+}
+
+impl std::fmt::Display for PlannerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PlannerKind::Bfs => write!(f, "bfs"),
+            PlannerKind::Astar => write!(f, "astar"),
+            PlannerKind::Gbfs => write!(f, "gbfs"),
+            PlannerKind::BibfsUc => write!(f, "bibfs-uc"),
+            PlannerKind::BiDij => write!(f, "bidij"),
+            PlannerKind::Nbs => write!(f, "nbs"),
+            PlannerKind::Bae => write!(f, "bae"),
+        }
+    }
+}
+
+impl std::str::FromStr for PlannerKind {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "bfs" => Ok(PlannerKind::Bfs),
+            "astar" => Ok(PlannerKind::Astar),
+            "gbfs" => Ok(PlannerKind::Gbfs),
+            "bibfs-uc" => Ok(PlannerKind::BibfsUc),
+            "bidij" => Ok(PlannerKind::BiDij),
+            "nbs" => Ok(PlannerKind::Nbs),
+            "bae" => Ok(PlannerKind::Bae),
+            _ => Err(format!(
+                "unknown planner: {s} (expected one of: bfs, astar, gbfs, bibfs-uc, bidij, nbs, bae)"
+            )),
+        }
+    }
+}
+
+impl PlannerKind {
+    /// Returns the registry name for this planner kind.
+    pub fn name(&self) -> &'static str {
+        match self {
+            PlannerKind::Bfs => "bfs",
+            PlannerKind::Astar => "astar",
+            PlannerKind::Gbfs => "gbfs",
+            PlannerKind::BibfsUc => "bibfs-uc",
+            PlannerKind::BiDij => "bidij",
+            PlannerKind::Nbs => "nbs",
+            PlannerKind::Bae => "bae",
+        }
     }
 }
 
@@ -525,14 +604,14 @@ impl Solver {
 /// # Examples
 ///
 /// ```
-/// use miniplan::search::PlannerChoice;
+/// use miniplan::search::{PlannerChoice, PlannerKind};
 ///
-/// let choice = PlannerChoice::new("astar");
-/// assert_eq!(choice.planner, "astar");
+/// let choice = PlannerChoice::new(PlannerKind::Astar);
+/// assert_eq!(choice.kind, PlannerKind::Astar);
 /// ```
 pub struct PlannerChoice {
-    /// Name of the planner to use (must be registered).
-    pub planner: String,
+    /// The planner to use.
+    pub kind: PlannerKind,
     /// Optional heuristic name (used by heuristic-driven planners).
     pub heuristic: Option<String>,
     /// Configuration options passed to the planner factory.
@@ -540,10 +619,10 @@ pub struct PlannerChoice {
 }
 
 impl PlannerChoice {
-    /// Create a new planner choice with just a planner name.
-    pub fn new(planner: &str) -> Self {
+    /// Create a new planner choice with just a planner kind.
+    pub fn new(kind: PlannerKind) -> Self {
         Self {
-            planner: planner.to_owned(),
+            kind,
             heuristic: None,
             config: PlannerConfig::default(),
         }

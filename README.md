@@ -157,7 +157,7 @@ use std::path::PathBuf;
 
 use miniplan::pddl_io::load_files_named;
 use miniplan::ground::ground;
-use miniplan::search::{Solver, PlannerChoice, PlannerConfig, SearchLimits, SearchOutcome};
+use miniplan::search::{Solver, PlannerChoice, PlannerKind, PlannerConfig, SearchLimits, SearchOutcome};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load PDDL files (one combined, or domain + problem)
@@ -174,7 +174,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.opts.insert("heuristic".to_owned(), "hff".to_owned());
 
     let choice = PlannerChoice {
-        planner: "astar".to_owned(),
+        kind: PlannerKind::Astar,
         heuristic: Some("hff".to_owned()),
         config,
     };

@@ -6,7 +6,9 @@ use crossterm::event::{MouseButton, MouseEventKind};
 use miniplan::ground::ground;
 use miniplan::pddl_io::PddlBundle;
 use miniplan::plan::Plan;
-use miniplan::search::{PlannerChoice, PlannerConfig, SearchLimits, SearchOutcome, Solver};
+use miniplan::search::{
+    PlannerChoice, PlannerConfig, PlannerKind, SearchLimits, SearchOutcome, Solver,
+};
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
 
@@ -767,6 +769,13 @@ impl App {
         };
 
         let planner_name = self.planners[self.selected_planner].name.clone();
+        let kind: PlannerKind = match planner_name.parse() {
+            Ok(k) => k,
+            Err(e) => {
+                self.error = Some(format!("Invalid planner: {}", e));
+                return;
+            }
+        };
         let heuristic_name = self.heuristics[self.selected_heuristic].name.clone();
 
         let mut config = PlannerConfig::default();
@@ -777,7 +786,7 @@ impl App {
         }
 
         let choice = PlannerChoice {
-            planner: planner_name.clone(),
+            kind,
             heuristic: if self.heuristic_enabled {
                 Some(heuristic_name)
             } else {

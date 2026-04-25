@@ -34,7 +34,7 @@
 //! with the built-in registry:
 //!
 //! ```
-//! use miniplan::search::{Solver, PlannerChoice, SearchLimits};
+//! use miniplan::search::{Solver, PlannerChoice, PlannerKind, SearchLimits};
 //! use miniplan::pddl_io::{load_domain_str, load_problem_str};
 //! use miniplan::ground::ground;
 //!
@@ -61,7 +61,7 @@
 //! let task = ground(&domain, &problem).expect("grounding succeeds");
 //!
 //! let solver = Solver::new();
-//! let choice = PlannerChoice::new("bfs");
+//! let choice = PlannerChoice::new(PlannerKind::Bfs);
 //! let limits = SearchLimits::default();
 //!
 //! match solver.solve_task(&task, &choice, &limits).expect("solve returns") {

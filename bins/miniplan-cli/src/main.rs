@@ -8,7 +8,9 @@ use clap::{Parser, Subcommand};
 
 use miniplan::ground::ground;
 use miniplan::pddl_io::load_files_named;
-use miniplan::search::{PlannerChoice, PlannerConfig, SearchLimits, SearchOutcome, Solver};
+use miniplan::search::{
+    PlannerChoice, PlannerConfig, PlannerKind, SearchLimits, SearchOutcome, Solver,
+};
 
 mod plan_writer;
 mod tui;
@@ -186,13 +188,15 @@ fn cmd_solve(
         memory_mb: None,
     };
 
+    let kind: PlannerKind = planner_name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
+
     let mut config = PlannerConfig::default();
     config
         .opts
         .insert("heuristic".to_owned(), heuristic_name.to_owned());
 
     let choice = PlannerChoice {
-        planner: planner_name.to_owned(),
+        kind,
         heuristic: Some(heuristic_name.to_owned()),
         config,
     };
