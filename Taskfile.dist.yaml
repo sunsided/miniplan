@@ -86,20 +86,22 @@ tasks:
       - example
       - examples
     cmds:
-       - task: example:blocksworld
-         vars:
-           PLANNER: astar
-       - task: example:gripper-small
-         vars:
-           PLANNER: bfs
-       - task: example:gripper:astar
-       - task: example:logistics
-         vars:
-           PLANNER: bfs
-       - task: example:air-cargo:astar
-       - task: example:compare
-       - task: example:air-cargo:showoff
-       - task: example:gripper:bidij
+      - task: example:blocksworld
+        vars:
+          PLANNER: astar
+      - task: example:gripper-small
+        vars:
+          PLANNER: bfs
+      - task: example:gripper:astar
+      - task: example:logistics
+        vars:
+          PLANNER: bfs
+      - task: example:air-cargo:astar
+      - task: example:compare
+      - task: example:air-cargo:showoff
+      - task: example:gripper:bidij
+      - task: example:gripper:binbs
+      - task: example:air-cargo:binbs
 
   example:blocksworld:
     desc: Solve the blocksworld-4 problem (4 blocks, tower stacking)
@@ -108,7 +110,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs, bidij, bibfs-uc]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs]
     vars:
       PLANNER: '{{.PLANNER | default "astar"}}'
 
@@ -119,7 +121,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs, bidij, bibfs-uc]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs]
     vars:
       PLANNER: '{{.PLANNER | default "bfs"}}'
 
@@ -130,7 +132,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs, bidij, bibfs-uc]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs]
     vars:
       PLANNER: '{{.PLANNER | default "astar"}}'
 
@@ -149,6 +151,11 @@ tasks:
     cmds:
       - "{{.CARGO}} run --bin miniplan -- solve --planner bidij --stats examples/pddl/gripper.pddl"
 
+  example:gripper:binbs:
+    desc: Solve gripper-4 with NBS (Near-Optimal Bidirectional Search, Chen et al. 2017)
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --stats examples/pddl/gripper.pddl"
+
   example:logistics:
     desc: Solve the logistics-simple problem (2 packages, 2 locations)
     cmds:
@@ -156,7 +163,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs, bidij, bibfs-uc]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs]
     vars:
       PLANNER: '{{.PLANNER | default "bfs"}}'
 
@@ -167,7 +174,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs, bidij, bibfs-uc]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs]
     vars:
       PLANNER: '{{.PLANNER | default "astar"}}'
 
@@ -185,6 +192,11 @@ tasks:
     desc: "Solve air-cargo-p3 with BiDij (Bidirectional Dijkstra, cost-aware optimal)"
     cmds:
       - "{{.CARGO}} run --bin miniplan -- solve --planner bidij --problem air-cargo-p3 --stats examples/pddl/air-cargo.pddl"
+
+  example:air-cargo:binbs:
+    desc: "Solve air-cargo-p3 with NBS (Near-Optimal Bidirectional Search, Chen et al. 2017)"
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --problem air-cargo-p3 --stats examples/pddl/air-cargo.pddl"
 
   example:air-cargo:showoff:
     desc: "Air Cargo P3 - GBFS (fast, non-optimal) vs A*+hFF (optimal: 13 actions, slower)"
@@ -212,6 +224,18 @@ tasks:
       - echo ""
       - echo "=== BiDij (Bidirectional Dijkstra, cost-aware optimal) ==="
       - "{{.CARGO}} run --bin miniplan -- solve --planner bidij --stats examples/pddl/gripper.pddl"
+
+  example:compare:binbs:
+    desc: Solve gripper-4 with A*, BiDij, and NBS side by side
+    cmds:
+      - echo "=== A* + hFF (optimal, forward-only) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner astar --stats examples/pddl/gripper.pddl"
+      - echo ""
+      - echo "=== BiDij (Bidirectional Dijkstra, cost-aware optimal) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bidij --stats examples/pddl/gripper.pddl"
+      - echo ""
+      - echo "=== NBS (Near-Optimal Bidirectional Search, Chen et al. 2017) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --stats examples/pddl/gripper.pddl"
 
   example:check:
     desc: Ground all example problems without searching

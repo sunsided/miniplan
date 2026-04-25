@@ -170,6 +170,10 @@ fn build_rpg(task: &Task, state: &State) -> RpgResult {
     }
 }
 
+pub fn rpg_fact_costs(task: &Task, state: &State) -> Vec<f64> {
+    build_rpg(task, state).fact_cost
+}
+
 fn extract_relaxed_plan_cost(task: &Task, rpg: &RpgResult) -> f64 {
     let mut marked_ops = std::collections::HashSet::new();
     let mut total_cost = 0.0;

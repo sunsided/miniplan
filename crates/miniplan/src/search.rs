@@ -2,6 +2,7 @@ pub mod astar;
 pub mod bfs;
 pub mod bidij;
 pub mod bibfs_uc;
+pub mod binbs;
 pub mod gbfs;
 
 use std::time::Duration;
@@ -205,6 +206,18 @@ impl Registry {
                 | PlannerCapabilities::NEGATIVE_PRECONDS
                 | PlannerCapabilities::ACTION_COSTS,
             factory: std::sync::Arc::new(|_cfg| Ok(Box::new(BiDij::new()))),
+        });
+
+        self.register_planner(RegisteredPlanner {
+            name: "binbs",
+            description: "Near-Optimal Bidirectional Search (Chen et al. 2017)",
+            capabilities: PlannerCapabilities::CLASSICAL
+                | PlannerCapabilities::NEGATIVE_PRECONDS
+                | PlannerCapabilities::ACTION_COSTS,
+            factory: std::sync::Arc::new(|_cfg| {
+                let h = Box::new(HFF);
+                Ok(Box::new(binbs::Nbs::new(h)))
+            }),
         });
 
         self.register_heuristic(RegisteredHeuristic {
