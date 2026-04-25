@@ -1,5 +1,5 @@
 use pddl::Term;
-use pddl::{AtomicFormula, CEffect, ConditionalEffect, Effects, FunctionTerm, PEffect};
+use pddl::{AtomicFormula, ConditionalEffect, EffectCondition, Effects, FunctionTerm, PrimitiveEffect};
 
 use crate::error::MiniplanError;
 use crate::ground::formula::{LiteralSet, build_state_from_literals, walk_goal_definition};
@@ -21,18 +21,18 @@ pub fn extract_effects(
 
     for ceffect in effects.iter() {
         match ceffect {
-            CEffect::Effect(pe) => {
+            ConditionalEffect::Effect(pe) => {
                 apply_plain_effect(pe, bindings, task, &mut add_state, &mut del_state)?;
             }
-            CEffect::Forall(forall) => {
+            ConditionalEffect::Forall(forall) => {
                 // Forall effects are expanded at grounding time.
                 for ce in forall.effects.iter() {
-                    if let CEffect::Effect(pe) = ce {
+                    if let ConditionalEffect::Effect(pe) = ce {
                         apply_plain_effect(pe, bindings, task, &mut add_state, &mut del_state)?;
                     }
                 }
             }
-            CEffect::When(when) => {
+            ConditionalEffect::When(when) => {
                 let cond_literals = walk_goal_definition(&when.condition, bindings)?;
                 let (cond_pos, cond_neg) = if cond_literals.is_empty() {
                     (State::new(task.num_facts()), State::new(task.num_facts()))
@@ -43,7 +43,7 @@ pub fn extract_effects(
 
                 let mut cond_add = State::new(task.num_facts());
                 let mut cond_del = State::new(task.num_facts());
-                for pe in flatten_conditional_effects(&when.effect) {
+                for pe in flatten_effect_condition(&when.effect) {
                     apply_plain_effect(&pe, bindings, task, &mut cond_add, &mut cond_del)?;
                 }
 
@@ -60,22 +60,22 @@ pub fn extract_effects(
     Ok((add_state, del_state, conditional))
 }
 
-fn flatten_conditional_effects(ce: &ConditionalEffect) -> Vec<PEffect> {
-    match ce {
-        ConditionalEffect::Single(pe) => vec![pe.clone()],
-        ConditionalEffect::All(pes) => pes.clone(),
+fn flatten_effect_condition(ec: &EffectCondition) -> Vec<PrimitiveEffect> {
+    match ec {
+        EffectCondition::Single(pe) => vec![pe.clone()],
+        EffectCondition::All(pes) => pes.clone(),
     }
 }
 
 fn apply_plain_effect(
-    pe: &PEffect,
+    pe: &PrimitiveEffect,
     bindings: &[(String, String)],
     task: &Task,
     add_state: &mut State,
     del_state: &mut State,
 ) -> Result<(), MiniplanError> {
     match pe {
-        PEffect::AtomicFormula(af) => {
+        PrimitiveEffect::AtomicFormula(af) => {
             if let AtomicFormula::Predicate(pred) = af {
                 let name = pred.predicate().to_string();
                 let args: Vec<String> = pred
@@ -92,7 +92,7 @@ fn apply_plain_effect(
                 }
             }
         }
-        PEffect::NotAtomicFormula(af) => {
+        PrimitiveEffect::NotAtomicFormula(af) => {
             if let AtomicFormula::Predicate(pred) = af {
                 let name = pred.predicate().to_string();
                 let args: Vec<String> = pred
@@ -109,10 +109,10 @@ fn apply_plain_effect(
                 }
             }
         }
-        PEffect::AssignNumericFluent(_, _, _) => {
+        PrimitiveEffect::AssignNumericFluent(_, _, _) => {
             // Numeric effects handled in cost.rs
         }
-        PEffect::AssignObjectFluent(_, _) => {
+        PrimitiveEffect::AssignObjectFluent(_, _) => {
             // Object fluents not supported in v1
         }
     }

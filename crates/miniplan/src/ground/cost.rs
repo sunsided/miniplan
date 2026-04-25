@@ -1,5 +1,5 @@
-use pddl::{ActionDefinition, FExp, FHead, Optimization, Problem};
-use pddl::{AssignOp, CEffect, PEffect};
+use pddl::{ActionDefinition, FluentExpression, FunctionHead, Optimization, Problem};
+use pddl::{AssignOp, ConditionalEffect, PrimitiveEffect};
 
 use crate::error::MiniplanError;
 
@@ -10,7 +10,7 @@ pub fn extract_action_cost(action: &ActionDefinition) -> Result<u32, MiniplanErr
     };
 
     for ceffect in effects.iter() {
-        if let CEffect::Effect(PEffect::AssignNumericFluent(op, head, exp)) = ceffect
+        if let ConditionalEffect::Effect(PrimitiveEffect::AssignNumericFluent(op, head, exp)) = ceffect
             && is_total_cost_increase(op, head)
             && let Some(val) = extract_numeric_value(exp)
         {
@@ -21,19 +21,19 @@ pub fn extract_action_cost(action: &ActionDefinition) -> Result<u32, MiniplanErr
     Ok(1)
 }
 
-fn is_total_cost_increase(op: &AssignOp, head: &FHead) -> bool {
+fn is_total_cost_increase(op: &AssignOp, head: &FunctionHead) -> bool {
     if !matches!(op, AssignOp::Increase) {
         return false;
     }
     match head {
-        FHead::Simple(fs) => fs.to_string() == "total-cost",
-        FHead::WithTerms(fs, _) => fs.to_string() == "total-cost",
+        FunctionHead::Simple(fs) => fs.to_string() == "total-cost",
+        FunctionHead::WithTerms(fs, _) => fs.to_string() == "total-cost",
     }
 }
 
-fn extract_numeric_value(exp: &FExp) -> Option<u32> {
+fn extract_numeric_value(exp: &FluentExpression) -> Option<u32> {
     match exp {
-        FExp::Number(n) => {
+        FluentExpression::Number(n) => {
             let val: f32 = **n;
             Some(val as u32)
         }

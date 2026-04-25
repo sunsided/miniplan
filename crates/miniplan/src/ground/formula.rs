@@ -48,7 +48,7 @@ pub fn walk_goal_definition(
         }
         GoalDefinition::ForAll(_vars, body) => walk_goal_definition(body, bindings),
         GoalDefinition::Exists(_vars, body) => walk_goal_definition(body, bindings),
-        GoalDefinition::FComp(_) => Err(MiniplanError::Ground(
+        GoalDefinition::FluentComparison(_) => Err(MiniplanError::Ground(
             "numeric comparison in goal not supported in v1".into(),
         )),
     }

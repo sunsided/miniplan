@@ -638,6 +638,6 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             .bg(Color::DarkGray)
             .add_modifier(Modifier::BOLD),
     );
-    let mut state = app.modal_list_state.clone();
+    let mut state = app.modal_list_state;
     frame.render_stateful_widget(list, inner, &mut state);
 }

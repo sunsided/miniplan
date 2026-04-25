@@ -175,8 +175,8 @@ fn build_goal_state(task: &mut Task, problem: &Problem) -> Result<(), MiniplanEr
 fn precondition_to_goal(pgd: &PreconditionGoalDefinition) -> Option<GoalDefinition> {
     match pgd {
         PreconditionGoalDefinition::Preference(pref_gd) => match pref_gd {
-            pddl::PreferenceGD::Goal(gd) => Some(gd.clone()),
-            pddl::PreferenceGD::Preference(_) => None,
+            pddl::PreferenceGoalDefinition::Goal(gd) => Some(gd.clone()),
+            pddl::PreferenceGoalDefinition::Preference(_) => None,
         },
         PreconditionGoalDefinition::Forall(_, _) => None,
     }
