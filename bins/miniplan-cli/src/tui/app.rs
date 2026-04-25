@@ -10,7 +10,7 @@ use miniplan::search::{
     PlannerChoice, PlannerConfig, PlannerKind, SearchLimits, SearchOutcome, Solver,
 };
 use ratatui::layout::Rect;
-use ratatui::widgets::ListState;
+use ratatui::widgets::{ListState, ScrollbarState};
 
 use crate::plan_writer::OutputFormat;
 use crate::tui::solver::{SolverEvent, spawn_solver};
@@ -116,9 +116,11 @@ pub struct App {
     pub editing_input: Option<InputField>,
 
     pub domain_state: StatefulList<usize>,
+    pub domain_scroll_state: ScrollbarState,
     pub duplicated_domains: HashSet<String>,
     pub compatible_problem_indices: Vec<usize>,
     pub problem_state: StatefulList<usize>,
+    pub problem_scroll_state: ScrollbarState,
     pub problem_blocked: bool,
 
     pub planners: Vec<PlannerEntry>,
@@ -140,6 +142,7 @@ pub struct App {
 
     pub modal: Option<ModalKind>,
     pub modal_list_state: ListState,
+    pub modal_scroll_state: ScrollbarState,
 
     pub error: Option<String>,
     pub flash_error: Option<String>,
@@ -213,9 +216,11 @@ impl App {
             editing_input: None,
 
             domain_state: StatefulList::with_items(deduped_indices),
+            domain_scroll_state: ScrollbarState::default(),
             duplicated_domains,
             compatible_problem_indices: Vec::new(),
             problem_state: StatefulList::with_items(Vec::new()),
+            problem_scroll_state: ScrollbarState::default(),
             problem_blocked: true,
 
             planners,
@@ -237,6 +242,7 @@ impl App {
 
             modal: None,
             modal_list_state: ListState::default(),
+            modal_scroll_state: ScrollbarState::default(),
 
             error: None,
             flash_error: None,
@@ -253,6 +259,9 @@ impl App {
         };
 
         app.rebuild_problem_list();
+        app.domain_scroll_state = app
+            .domain_scroll_state
+            .content_length(app.domain_state.items.len());
         app
     }
 
@@ -277,11 +286,13 @@ impl App {
                 .map(|(i, _)| i)
                 .collect();
             self.compatible_problem_indices = compatible.clone();
+            self.problem_scroll_state = self.problem_scroll_state.content_length(compatible.len());
             self.problem_state = StatefulList::with_items(compatible);
             self.problem_blocked = self.compatible_problem_indices.is_empty();
         } else {
             self.compatible_problem_indices.clear();
             self.problem_state = StatefulList::with_items(Vec::new());
+            self.problem_scroll_state = self.problem_scroll_state.content_length(0);
             self.problem_blocked = true;
         }
     }

@@ -2,7 +2,9 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
+use ratatui::widgets::{
+    Block, Borders, Clear, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation,
+};
 
 use crate::tui::app::{App, AppFocus, InputField, ModalKind, SolvingState};
 
@@ -139,6 +141,17 @@ fn render_domain_panel(frame: &mut Frame, app: &mut App, area: Rect) {
         Style::default().bg(Color::Rgb(50, 50, 50))
     });
     frame.render_stateful_widget(list, inner, &mut app.domain_state.state);
+
+    let selected = app.domain_state.state.selected().unwrap_or(0);
+    let scroll_state = app
+        .domain_scroll_state
+        .position(selected)
+        .content_length(app.domain_state.items.len());
+    let scrollbar = Scrollbar::default()
+        .orientation(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(Some("↑"))
+        .end_symbol(Some("↓"));
+    frame.render_stateful_widget(scrollbar, area, &mut scroll_state.clone());
 }
 
 fn render_problem_panel(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -193,6 +206,17 @@ fn render_problem_panel(frame: &mut Frame, app: &mut App, area: Rect) {
         Style::default().bg(Color::Rgb(50, 50, 50))
     });
     frame.render_stateful_widget(list, inner, &mut app.problem_state.state);
+
+    let selected = app.problem_state.state.selected().unwrap_or(0);
+    let scroll_state = app
+        .problem_scroll_state
+        .position(selected)
+        .content_length(app.problem_state.items.len());
+    let scrollbar = Scrollbar::default()
+        .orientation(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(Some("↑"))
+        .end_symbol(Some("↓"));
+    frame.render_stateful_widget(scrollbar, area, &mut scroll_state.clone());
 }
 
 fn render_solver_config(frame: &mut Frame, app: &mut App, outer: Rect, chunks: &[Rect]) {
@@ -640,4 +664,20 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
     );
     let mut state = app.modal_list_state;
     frame.render_stateful_widget(list, inner, &mut state);
+
+    let modal_len = match app.modal {
+        Some(ModalKind::Planner) => app.planners.len(),
+        Some(ModalKind::Heuristic) => app.heuristics.len(),
+        None => 0,
+    };
+    let selected = app.modal_list_state.selected().unwrap_or(0);
+    let scroll_state = app
+        .modal_scroll_state
+        .position(selected)
+        .content_length(modal_len);
+    let scrollbar = Scrollbar::default()
+        .orientation(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(Some("↑"))
+        .end_symbol(Some("↓"));
+    frame.render_stateful_widget(scrollbar, modal_area, &mut scroll_state.clone());
 }
