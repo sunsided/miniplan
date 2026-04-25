@@ -228,11 +228,8 @@ pub trait Planner: Send {
     }
 
     /// Solve the given `task` within the specified `limits`.
-    fn solve(
-        &mut self,
-        task: &Task,
-        limits: &SearchLimits,
-    ) -> Result<SearchOutcome, MiniplanError>;
+    fn solve(&mut self, task: &Task, limits: &SearchLimits)
+    -> Result<SearchOutcome, MiniplanError>;
 }
 
 /// Configuration options passed to planner/heuristic factories.

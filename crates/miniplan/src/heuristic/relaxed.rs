@@ -1,5 +1,5 @@
-use crate::search::Heuristic;
 use crate::search::HValue;
+use crate::search::Heuristic;
 use crate::task::{FactId, OpId, State, Task};
 
 /// The h^add heuristic (Bonet & Geffner, 2001).

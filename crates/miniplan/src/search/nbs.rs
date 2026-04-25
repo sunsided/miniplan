@@ -6,7 +6,7 @@ use fixedbitset::FixedBitSet;
 use rustc_hash::FxHashMap;
 
 use crate::error::MiniplanError;
-use crate::heuristic::{rpg_fact_costs, HFF};
+use crate::heuristic::{HFF, rpg_fact_costs};
 use crate::plan::{Plan, PlanStep};
 use crate::search::{
     Heuristic, Planner, PlannerCapabilities, SearchLimits, SearchOutcome, SearchStats,
@@ -640,7 +640,7 @@ impl Planner for Nbs {
 mod tests {
     use super::*;
     use crate::heuristic::HFF;
-    use crate::search::{Astar, BibfsUc, BiDij};
+    use crate::search::{Astar, BiDij, BibfsUc};
     use crate::task::{CondEffect, Fact, FactId, Task, TaskMeta, TypeHierarchy};
     use rustc_hash::FxHashMap;
 

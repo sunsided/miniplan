@@ -2,9 +2,9 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::time::Instant;
 
-use crate::search::Heuristic;
 use crate::error::MiniplanError;
 use crate::plan::{Plan, PlanStep};
+use crate::search::Heuristic;
 use crate::search::{
     HValue, Planner, PlannerCapabilities, SearchLimits, SearchOutcome, SearchStats,
 };

@@ -4,13 +4,14 @@ A PDDL planner library built around the [`pddl`](https://github.com/sunsided/pdd
 
 [![CI](https://img.shields.io/github/actions/workflow/status/sunsided/miniplan/ci.yml?branch=main&label=CI)](https://github.com/sunsided/miniplan/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/miniplan)](https://crates.io/crates/miniplan)
+[![Crates.io](https://img.shields.io/crates/v/miniplan-cli)](https://crates.io/crates/miniplan-cli)
 [![docs.rs](https://img.shields.io/docsrs/miniplan)](https://docs.rs/miniplan)
 [![License](https://img.shields.io/badge/license-EUPL--1.2-blue)](https://spdx.org/licenses/EUPL-1.2.html)
 ![Rust Edition](https://img.shields.io/badge/edition-2024-orange?logo=rust)
 [![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance/)
 <!-- [![GitHub Stars](https://img.shields.io/github/stars/sunsided/miniplan?style=social)](https://github.com/sunsided/miniplan) -->
 
-**miniplan** is a grounded, classical PDDL planner focused on simplicity and performance. It targets STRIPS-level domains with support for typing, negative preconditions, and conditional effects. Use it as a library in your own projects or as a CLI for quick planning experiments.
+**miniplan** is a grounded, classical PDDL planner focused on simplicity and performance. It targets STRIPS-level domains with support for typing, negative preconditions, and conditional effects. Use it as a library in your own projects or as a CLI (`miniplan`) for quick planning experiments.
 
 ## Features
 
@@ -45,6 +46,14 @@ pddl = { git = "https://github.com/sunsided/pddl-rs", branch = "main" }
 ### CLI
 
 ```bash
+cargo install miniplan-cli --locked
+```
+
+The resulting binary is `miniplan` (not `miniplan-cli`).
+
+Or install from the git repository:
+
+```bash
 cargo install --git https://github.com/sunsided/miniplan miniplan-cli
 ```
 
@@ -55,8 +64,6 @@ git clone https://github.com/sunsided/miniplan
 cd miniplan
 cargo build --release
 ```
-
-The resulting binary is `miniplan` (not `miniplan-cli`).
 
 ## Quick Start (CLI)
 

@@ -78,7 +78,9 @@ fn solve_with_ff(src: &str, problem_name: &str) -> usize {
     let outcome = planner.solve(&task, &limits).expect("solve should return");
     match outcome {
         miniplan::search::SearchOutcome::Plan(plan, _stats) => plan.len(),
-        miniplan::search::SearchOutcome::Unsolvable(_) => panic!("{} should be solvable", problem_name),
+        miniplan::search::SearchOutcome::Unsolvable(_) => {
+            panic!("{} should be solvable", problem_name)
+        }
         miniplan::search::SearchOutcome::LimitReached(_) => {
             panic!("{} hit search limits", problem_name)
         }

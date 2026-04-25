@@ -1,5 +1,5 @@
-use crate::search::Heuristic;
 use crate::search::HValue;
+use crate::search::Heuristic;
 use crate::task::{State, Task};
 
 /// The h^0 (zero) heuristic — always returns 0.

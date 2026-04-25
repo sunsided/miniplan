@@ -1,5 +1,5 @@
-use crate::search::Heuristic;
 use crate::search::HValue;
+use crate::search::Heuristic;
 use crate::task::{State, Task};
 
 /// A blind heuristic that returns 0 at the goal and 1 otherwise.

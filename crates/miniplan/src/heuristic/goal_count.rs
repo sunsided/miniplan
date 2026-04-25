@@ -1,5 +1,5 @@
-use crate::search::Heuristic;
 use crate::search::HValue;
+use crate::search::Heuristic;
 use crate::task::{State, Task};
 
 /// A heuristic that counts the number of unsatisfied positive goal facts.
