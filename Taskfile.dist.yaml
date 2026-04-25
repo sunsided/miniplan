@@ -310,3 +310,25 @@ tasks:
     desc: Ground all example problems without searching
     cmds:
       - ls examples/pddl/*.pddl | xargs -I {} sh -c 'echo "--- {} ---"; {{.CARGO}} run --bin miniplan -- check "{}"; echo ""'
+
+  run:
+    desc: Launch the interactive TUI with all example PDDL files
+    aliases:
+      - tui
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- tui examples/pddl/*.pddl"
+
+  docs:
+    desc: Build rustdoc
+    aliases:
+      - doc
+    cmds:
+      - cargo doc -p miniplan --no-deps --all-features
+
+  docs:open:
+    desc: Build rustdoc (and open them)
+    aliases:
+      - doc:open
+    cmds:
+      - cargo doc -p miniplan --no-deps --all-features --open
+

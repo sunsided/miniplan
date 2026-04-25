@@ -188,31 +188,23 @@ fn reconstruct_plan_from_meet(
 
     let mut forward_ops: Vec<OpId> = Vec::new();
     let mut current = meet_state.clone();
-    loop {
-        if let Some((parent, op)) = forward_parent.get(&current) {
-            if op.0 == usize::MAX {
-                break;
-            }
-            forward_ops.push(*op);
-            current = parent.clone().unwrap();
-        } else {
+    while let Some((parent, op)) = forward_parent.get(&current) {
+        if op.0 == usize::MAX {
             break;
         }
+        forward_ops.push(*op);
+        current = parent.clone().unwrap();
     }
     forward_ops.reverse();
 
     let mut backward_ops: Vec<OpId> = Vec::new();
     let mut sg_current = meet_subgoal.clone();
-    loop {
-        if let Some((parent, op)) = backward_parent.get(&sg_current) {
-            if op.0 == usize::MAX {
-                break;
-            }
-            backward_ops.push(*op);
-            sg_current = parent.clone().unwrap();
-        } else {
+    while let Some((parent, op)) = backward_parent.get(&sg_current) {
+        if op.0 == usize::MAX {
             break;
         }
+        backward_ops.push(*op);
+        sg_current = parent.clone().unwrap();
     }
 
     let mut all_ops = forward_ops;
@@ -351,19 +343,19 @@ impl Planner for Nbs {
                 _ => f64::INFINITY,
             };
 
-            if let Some((_, _, meet_cost)) = best_meet {
-                if gm_bound >= meet_cost {
-                    stats.elapsed = start.elapsed();
-                    let plan = reconstruct_plan_from_meet(
-                        &best_meet.unwrap(),
-                        &forward_parent,
-                        &backward_parent,
-                        task,
-                    );
-                    stats.plan_cost = plan.cost;
-                    stats.plan_length = plan.len();
-                    return Ok(SearchOutcome::Plan(plan, stats));
-                }
+            if let Some((_, _, meet_cost)) = best_meet
+                && gm_bound >= meet_cost
+            {
+                stats.elapsed = start.elapsed();
+                let plan = reconstruct_plan_from_meet(
+                    &best_meet.unwrap(),
+                    &forward_parent,
+                    &backward_parent,
+                    task,
+                );
+                stats.plan_cost = plan.cost;
+                stats.plan_length = plan.len();
+                return Ok(SearchOutcome::Plan(plan, stats));
             }
 
             let forward_empty = forward_open_f.is_empty() || forward_open_g.is_empty();
@@ -443,7 +435,7 @@ impl Planner for Nbs {
                             let (sg, sg_g, _) = &backward_entries[idx as usize];
                             if state.satisfies(&sg.0, &sg.1) {
                                 let total = g + sg_g;
-                                if best_meet.as_ref().map_or(true, |(_, _, c)| total < *c) {
+                                if best_meet.as_ref().is_none_or(|(_, _, c)| total < *c) {
                                     best_meet = Some((state.clone(), sg.clone(), total));
                                 }
                             }
@@ -455,7 +447,7 @@ impl Planner for Nbs {
                         let (sg, sg_g, _) = &backward_entries[idx as usize];
                         if state.satisfies(&sg.0, &sg.1) {
                             let total = g + sg_g;
-                            if best_meet.as_ref().map_or(true, |(_, _, c)| total < *c) {
+                            if best_meet.as_ref().is_none_or(|(_, _, c)| total < *c) {
                                 best_meet = Some((state.clone(), sg.clone(), total));
                             }
                         }
@@ -544,7 +536,7 @@ impl Planner for Nbs {
                     for (f_state, f_g, _) in &forward_entries {
                         if f_state.satisfies(&g_pos, &g_neg) {
                             let total = f_g + g;
-                            if best_meet.as_ref().map_or(true, |(_, _, c)| total < *c) {
+                            if best_meet.as_ref().is_none_or(|(_, _, c)| total < *c) {
                                 best_meet =
                                     Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
                             }
@@ -560,7 +552,7 @@ impl Planner for Nbs {
                         let (f_state, f_g, _) = &forward_entries[idx as usize];
                         if f_state.satisfies(&g_pos, &g_neg) {
                             let total = f_g + g;
-                            if best_meet.as_ref().map_or(true, |(_, _, c)| total < *c) {
+                            if best_meet.as_ref().is_none_or(|(_, _, c)| total < *c) {
                                 best_meet =
                                     Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
                             }

@@ -25,7 +25,7 @@ pub fn load_problem_path(path: &Path) -> Result<Problem, MiniplanError> {
     load_problem_str(&s)
 }
 
-fn load_pddl_file_str(s: &str) -> Result<PddlFile, MiniplanError> {
+pub(crate) fn load_pddl_file_str(s: &str) -> Result<PddlFile, MiniplanError> {
     PddlFile::from_str(s).map_err(|e| MiniplanError::Parse(e.to_string()))
 }
 
@@ -250,5 +250,133 @@ pub fn load_files_named(
             Ok((domain, problem))
         }
         _ => Err(MiniplanError::Parse("expected 1 or 2 input files".into())),
+    }
+}
+
+pub struct PddlBundle {
+    pub domains: Vec<(std::path::PathBuf, Domain)>,
+    pub problems: Vec<(std::path::PathBuf, Problem)>,
+}
+
+pub fn load_pddl_bundle(paths: &[impl AsRef<Path>]) -> Result<PddlBundle, MiniplanError> {
+    let mut domains = Vec::new();
+    let mut problems = Vec::new();
+
+    for path in paths {
+        let path = path.as_ref();
+        let s = fs::read_to_string(path).map_err(MiniplanError::Io)?;
+        let parsed = load_pddl_file_str(&s)?;
+        for domain in parsed.domains {
+            domains.push((path.to_path_buf(), domain));
+        }
+        for problem in parsed.problems {
+            problems.push((path.to_path_buf(), problem));
+        }
+    }
+
+    Ok(PddlBundle { domains, problems })
+}
+
+#[cfg(test)]
+mod tests_bundle {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn write_pddl(content: &str) -> NamedTempFile {
+        let mut f = NamedTempFile::new().unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+        f
+    }
+
+    #[test]
+    fn test_single_file_with_both() {
+        let content = r#"
+(define (domain test-domain)
+  (:requirements :strips)
+  (:predicates (at ?x))
+)
+(define (problem test-problem)
+  (:domain test-domain)
+  (:objects)
+  (:init)
+  (:goal (at obj1))
+)
+"#;
+        let f = write_pddl(content);
+        let bundle = load_pddl_bundle(&[f.path()]).unwrap();
+        assert_eq!(bundle.domains.len(), 1);
+        assert_eq!(bundle.problems.len(), 1);
+        assert_eq!(bundle.domains[0].1.name().to_string(), "test-domain");
+        assert_eq!(bundle.problems[0].1.name().to_string(), "test-problem");
+    }
+
+    #[test]
+    fn test_two_files_separate() {
+        let domain_content = r#"
+(define (domain test-domain)
+  (:requirements :strips)
+  (:predicates (at ?x))
+)
+"#;
+        let problem_content = r#"
+(define (problem test-problem)
+  (:domain test-domain)
+  (:objects)
+  (:init)
+  (:goal (at obj1))
+)
+"#;
+        let f1 = write_pddl(domain_content);
+        let f2 = write_pddl(problem_content);
+        let bundle = load_pddl_bundle(&[f1.path(), f2.path()]).unwrap();
+        assert_eq!(bundle.domains.len(), 1);
+        assert_eq!(bundle.problems.len(), 1);
+    }
+
+    #[test]
+    fn test_three_files_mixed() {
+        let domain1 = r#"
+(define (domain domain-a)
+  (:requirements :strips)
+  (:predicates (p ?x))
+)
+"#;
+        let domain2 = r#"
+(define (domain domain-b)
+  (:requirements :strips)
+  (:predicates (q ?x))
+)
+"#;
+        let problem = r#"
+(define (problem prob-1)
+  (:domain domain-a)
+  (:objects)
+  (:init)
+  (:goal (p obj1))
+)
+"#;
+        let f1 = write_pddl(domain1);
+        let f2 = write_pddl(domain2);
+        let f3 = write_pddl(problem);
+        let bundle = load_pddl_bundle(&[f1.path(), f2.path(), f3.path()]).unwrap();
+        assert_eq!(bundle.domains.len(), 2);
+        assert_eq!(bundle.problems.len(), 1);
+        let names: Vec<_> = bundle
+            .domains
+            .iter()
+            .map(|(_, d)| d.name().to_string())
+            .collect();
+        assert!(names.contains(&"domain-a".to_string()));
+        assert!(names.contains(&"domain-b".to_string()));
+    }
+
+    #[test]
+    fn test_empty_bundle() {
+        let content = "; just a comment";
+        let f = write_pddl(content);
+        let bundle = load_pddl_bundle(&[f.path()]).unwrap();
+        assert!(bundle.domains.is_empty());
+        assert!(bundle.problems.is_empty());
     }
 }

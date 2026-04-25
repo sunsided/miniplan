@@ -263,31 +263,23 @@ fn reconstruct_plan(
 ) -> Option<Plan> {
     let mut forward_ops: Vec<OpId> = Vec::new();
     let mut current = meet_state.clone();
-    loop {
-        if let Some((parent, op)) = forward_closed.get(&current) {
-            if op.0 == usize::MAX {
-                break;
-            }
-            forward_ops.push(*op);
-            current = parent.clone().unwrap();
-        } else {
+    while let Some((parent, op)) = forward_closed.get(&current) {
+        if op.0 == usize::MAX {
             break;
         }
+        forward_ops.push(*op);
+        current = parent.clone().unwrap();
     }
     forward_ops.reverse();
 
     let mut backward_ops: Vec<OpId> = Vec::new();
     let mut sg_current = meet_subgoal.clone();
-    loop {
-        if let Some((parent, op)) = backward_closed.get(&sg_current) {
-            if op.0 == usize::MAX {
-                break;
-            }
-            backward_ops.push(*op);
-            sg_current = parent.clone().unwrap();
-        } else {
+    while let Some((parent, op)) = backward_closed.get(&sg_current) {
+        if op.0 == usize::MAX {
             break;
         }
+        backward_ops.push(*op);
+        sg_current = parent.clone().unwrap();
     }
 
     let mut all_ops = forward_ops;

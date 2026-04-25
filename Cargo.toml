@@ -23,6 +23,8 @@ pddl = { git = "https://github.com/sunsided/pddl-rs", branch = "main" }
 pretty_assertions = "1"
 rustc-hash = "2"
 serde_json = "1"
+tempfile = "3"
+assert_cmd = "2"
 thiserror = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

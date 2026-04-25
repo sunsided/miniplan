@@ -4,12 +4,16 @@ use std::path::PathBuf;
 use std::process;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 
 use miniplan::ground::ground;
 use miniplan::pddl_io::load_files_named;
-use miniplan::plan::Plan;
 use miniplan::search::{PlannerChoice, PlannerConfig, SearchLimits, SearchOutcome, Solver};
+
+mod plan_writer;
+mod tui;
+
+use plan_writer::{OutputFormat, write_plan};
 
 #[derive(Parser)]
 #[command(name = "miniplan", about = "A small PDDL planner", version)]
@@ -82,13 +86,12 @@ enum Command {
     },
     /// List available planners and heuristics
     ListPlanners,
-}
-
-#[derive(ValueEnum, Clone, Debug)]
-enum OutputFormat {
-    Plain,
-    Ipc,
-    Json,
+    /// Launch the interactive TUI
+    Tui {
+        /// Input PDDL file(s) — any mix of domains and problems
+        #[arg(required = true)]
+        input: Vec<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -143,6 +146,7 @@ fn main() -> Result<()> {
             problem,
         } => cmd_check(&input, domain.as_deref(), problem.as_deref()),
         Command::ListPlanners => cmd_list_planners(),
+        Command::Tui { input } => tui::run(&input),
     }
 }
 
@@ -270,30 +274,5 @@ fn cmd_list_planners() -> Result<()> {
     for h in solver.registry.heuristics() {
         println!("  {}", h.name);
     }
-    Ok(())
-}
-
-fn write_plan(plan: &Plan, format: &OutputFormat, output: &str) -> Result<()> {
-    let text = match format {
-        OutputFormat::Plain | OutputFormat::Ipc => {
-            format!("{}", plan)
-        }
-        OutputFormat::Json => {
-            let steps: Vec<&str> = plan.steps.iter().map(|s| s.op_name.as_str()).collect();
-            serde_json::to_string_pretty(&serde_json::json!({
-                "cost": plan.cost,
-                "length": plan.len(),
-                "steps": steps,
-            }))
-            .context("Failed to serialize plan to JSON")?
-        }
-    };
-
-    if output == "-" {
-        print!("{}", text);
-    } else {
-        std::fs::write(output, text).context("Failed to write plan file")?;
-    }
-
     Ok(())
 }
