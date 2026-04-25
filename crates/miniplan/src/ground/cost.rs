@@ -10,7 +10,8 @@ pub fn extract_action_cost(action: &ActionDefinition) -> Result<u32, MiniplanErr
     };
 
     for ceffect in effects.iter() {
-        if let ConditionalEffect::Effect(PrimitiveEffect::AssignNumericFluent(op, head, exp)) = ceffect
+        if let ConditionalEffect::Effect(PrimitiveEffect::AssignNumericFluent(op, head, exp)) =
+            ceffect
             && is_total_cost_increase(op, head)
             && let Some(val) = extract_numeric_value(exp)
         {

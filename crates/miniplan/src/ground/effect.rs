@@ -1,5 +1,7 @@
 use pddl::Term;
-use pddl::{AtomicFormula, ConditionalEffect, EffectCondition, Effects, FunctionTerm, PrimitiveEffect};
+use pddl::{
+    AtomicFormula, ConditionalEffect, EffectCondition, Effects, FunctionTerm, PrimitiveEffect,
+};
 
 use crate::error::MiniplanError;
 use crate::ground::formula::{LiteralSet, build_state_from_literals, walk_goal_definition};
