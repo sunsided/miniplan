@@ -20,6 +20,11 @@ A small, fast PDDL planner written in Rust.
   - `bfs` — blind breadth-first search (optimal)
   - `astar` — A* with pluggable heuristics (optimal)
   - `gbfs` — greedy best-first search (fast, non-optimal)
+  - `bidij` — bidirectional Dijkstra (cost-aware, optimal)
+  - `bibfs-uc` — bidirectional BFS (uniform-cost, optimal)
+  - `binbs` — Near-Optimal Bidirectional Search (heuristic-guided, non-optimal with HFF)
+  - `bibae` — Bidirectional A* with Error / BAE* (heuristic-guided, non-optimal with HFF)
+- **Bidirectional heuristic search**: `bidij`, `bibfs-uc`, `binbs` (NBS), `bibae` (BAE*)
 - **Heuristics**: `hff` (relaxed-plan), `hadd`, `hmax`, `goal-count`, `blind`
 - **Output formats**: plain, IPC, JSON
 - **Search limits**: time budget, node budget
@@ -91,6 +96,10 @@ Available planners:
   bfs          Breadth-first search
   astar        A* search with pluggable heuristic
   gbfs         Greedy best-first search
+  bibfs-uc     Bidirectional BFS (uniform-cost, not cost-aware)
+  bidij        Bidirectional Dijkstra (cost-aware)
+  binbs        Near-Optimal Bidirectional Search (Chen et al. 2017)
+  bibae        Bidirectional A* with Error (BAE*, Sadhukhan 2013)
 
 Available heuristics:
   goal-count
@@ -114,7 +123,7 @@ Available heuristics:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-p, --planner` | `astar` | Planner to use (`bfs`, `astar`, `gbfs`) |
+| `-p, --planner` | `astar` | Planner to use (`bfs`, `astar`, `gbfs`, `bidij`, `bibfs-uc`, `binbs`, `bibae`) |
 | `-H, --heuristic` | `ff` | Heuristic (`hff`, `hadd`, `hmax`, `goal-count`, `blind`) |
 | `-t, --timeout` | — | Time budget (e.g. `30s`, `2m`) |
 | `--max-nodes` | — | Maximum nodes to expand |

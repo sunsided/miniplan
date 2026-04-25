@@ -102,6 +102,8 @@ tasks:
       - task: example:gripper:bidij
       - task: example:gripper:binbs
       - task: example:air-cargo:binbs
+      - task: example:gripper:bibae
+      - task: example:air-cargo:bibae
 
   example:blocksworld:
     desc: Solve the blocksworld-4 problem (4 blocks, tower stacking)
@@ -110,7 +112,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs, bibae]
     vars:
       PLANNER: '{{.PLANNER | default "astar"}}'
 
@@ -121,7 +123,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs, bibae]
     vars:
       PLANNER: '{{.PLANNER | default "bfs"}}'
 
@@ -132,7 +134,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs, bibae]
     vars:
       PLANNER: '{{.PLANNER | default "astar"}}'
 
@@ -166,6 +168,21 @@ tasks:
     cmds:
       - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --heuristic hmax --stats examples/pddl/gripper.pddl"
 
+  example:gripper:bibae:
+    desc: Solve gripper-4 with BAE* (Bidirectional A* with Error, Sadhukhan 2013)
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bibae --stats examples/pddl/gripper.pddl"
+
+  example:gripper:bibae:zero:
+    desc: Solve gripper-4 with BAE* + h=0 (degenerates to bidirectional uniform-cost search)
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bibae --heuristic zero --stats examples/pddl/gripper.pddl"
+
+  example:gripper:bibae:hmax:
+    desc: Solve gripper-4 with BAE* + hMax (admissible heuristics both directions)
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bibae --heuristic hmax --stats examples/pddl/gripper.pddl"
+
   example:logistics:
     desc: Solve the logistics-simple problem (2 packages, 2 locations)
     cmds:
@@ -173,7 +190,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs, bibae]
     vars:
       PLANNER: '{{.PLANNER | default "bfs"}}'
 
@@ -184,7 +201,7 @@ tasks:
     requires:
       vars:
         - name: PLANNER
-          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs]
+          enum: [bfs, astar, gbfs, bidij, bibfs-uc, binbs, bibae]
     vars:
       PLANNER: '{{.PLANNER | default "astar"}}'
 
@@ -212,6 +229,16 @@ tasks:
     desc: "Solve air-cargo-p3 with NBS + h=0 (degenerates to bidirectional uniform-cost search)"
     cmds:
       - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --heuristic zero --problem air-cargo-p3 --stats examples/pddl/air-cargo.pddl"
+
+  example:air-cargo:bibae:
+    desc: "Solve air-cargo-p3 with BAE* (Bidirectional A* with Error, Sadhukhan 2013)"
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bibae --problem air-cargo-p3 --stats examples/pddl/air-cargo.pddl"
+
+  example:air-cargo:bibae:zero:
+    desc: "Solve air-cargo-p3 with BAE* + h=0 (degenerates to bidirectional uniform-cost search)"
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bibae --heuristic zero --problem air-cargo-p3 --stats examples/pddl/air-cargo.pddl"
 
   example:air-cargo:showoff:
     desc: "Air Cargo P3 - GBFS (fast, non-optimal) vs A*+hFF (optimal: 13 actions, slower)"
@@ -241,7 +268,7 @@ tasks:
       - "{{.CARGO}} run --bin miniplan -- solve --planner bidij --stats examples/pddl/gripper.pddl"
 
   example:compare:binbs:
-    desc: Solve gripper-4 with A*, BiDij, and NBS side by side
+    desc: Solve gripper-4 with A*, BiDij, NBS, and BAE* side by side
     cmds:
       - echo "=== A* + hFF (optimal, forward-only) ==="
       - "{{.CARGO}} run --bin miniplan -- solve --planner astar --stats examples/pddl/gripper.pddl"
@@ -251,6 +278,9 @@ tasks:
       - echo ""
       - echo "=== NBS + hFF (Near-Optimal Bidirectional Search) ==="
       - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --stats examples/pddl/gripper.pddl"
+      - echo ""
+      - echo "=== BAE* + hFF (Bidirectional A* with Error) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bibae --stats examples/pddl/gripper.pddl"
 
   example:compare:binbs-heuristics:
     desc: Solve gripper-4 with NBS using hFF, hMax, and h=0 side by side
@@ -263,6 +293,18 @@ tasks:
       - echo ""
       - echo "=== NBS + h=0 (degenerates to bidirectional Dijkstra) ==="
       - "{{.CARGO}} run --bin miniplan -- solve --planner binbs --heuristic zero --stats examples/pddl/gripper.pddl"
+
+  example:compare:bibae-heuristics:
+    desc: Solve gripper-4 with BAE* using hFF, hMax, and h=0 side by side
+    cmds:
+      - echo "=== BAE* + hFF (inadmissible, fast) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bibae --heuristic hff --stats examples/pddl/gripper.pddl"
+      - echo ""
+      - echo "=== BAE* + hMax (admissible heuristics both directions) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bibae --heuristic hmax --stats examples/pddl/gripper.pddl"
+      - echo ""
+      - echo "=== BAE* + h=0 (degenerates to bidirectional Dijkstra) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bibae --heuristic zero --stats examples/pddl/gripper.pddl"
 
   example:check:
     desc: Ground all example problems without searching

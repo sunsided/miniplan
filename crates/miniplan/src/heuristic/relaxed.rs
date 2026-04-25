@@ -213,3 +213,179 @@ fn extract_relaxed_plan_cost(task: &Task, rpg: &RpgResult) -> f64 {
 
     total_cost
 }
+
+pub(crate) fn rpg_backward_fact_costs(task: &Task, goal_pos: &State, goal_neg: &State) -> Vec<f64> {
+    let num_facts = task.num_facts();
+    let mut back_cost = vec![f64::INFINITY; num_facts];
+
+    for b in goal_pos.0.ones() {
+        back_cost[b] = 0.0;
+    }
+
+    let _ = goal_neg;
+
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for op in &task.operators {
+            if op.add.0.is_empty() {
+                continue;
+            }
+            let mut max_add_cost = 0.0f64;
+            let mut all_finite = true;
+            for b in op.add.0.ones() {
+                let c = back_cost[b];
+                if c == f64::INFINITY {
+                    all_finite = false;
+                    break;
+                }
+                if c > max_add_cost {
+                    max_add_cost = c;
+                }
+            }
+            if !all_finite {
+                continue;
+            }
+            let op_total = max_add_cost + op.cost as f64;
+            for p in op.pre_pos.0.ones() {
+                if op_total < back_cost[p] {
+                    back_cost[p] = op_total;
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    back_cost
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::{Fact, FactId, OpId, Operator, Task, TaskMeta, TypeHierarchy};
+    use rustc_hash::FxHashMap;
+
+    fn make_test_task(
+        num_facts: usize,
+        init_bits: &[usize],
+        goal_pos_bits: &[usize],
+        goal_neg_bits: &[usize],
+        operators: Vec<Operator>,
+    ) -> Task {
+        let mut facts = Vec::new();
+        let mut fact_index = FxHashMap::default();
+        for i in 0..num_facts {
+            let fact = Fact {
+                predicate: format!("f{}", i),
+                args: vec![],
+            };
+            let id = FactId(i);
+            fact_index.insert(fact.clone(), id);
+            facts.push(fact);
+        }
+        let mut init = State::new(num_facts);
+        for &b in init_bits {
+            init.0.set(b, true);
+        }
+        let mut goal_pos = State::new(num_facts);
+        for &b in goal_pos_bits {
+            goal_pos.0.set(b, true);
+        }
+        let mut goal_neg = State::new(num_facts);
+        for &b in goal_neg_bits {
+            goal_neg.0.set(b, true);
+        }
+        Task {
+            facts,
+            fact_index,
+            operators,
+            init,
+            goal_pos,
+            goal_neg,
+            objects: vec![],
+            types: TypeHierarchy::new(),
+            metadata: TaskMeta {
+                domain_name: "test".to_string(),
+                problem_name: "test".to_string(),
+                requirements: vec![],
+            },
+        }
+    }
+
+    fn make_op(
+        id: usize,
+        name: &str,
+        pre_pos: &[usize],
+        pre_neg: &[usize],
+        add: &[usize],
+        del: &[usize],
+        cost: u32,
+    ) -> Operator {
+        let s = |bits: &[usize], size: usize| -> State {
+            let mut state = State::new(size);
+            for &b in bits {
+                state.0.set(b, true);
+            }
+            state
+        };
+        Operator {
+            id: OpId(id),
+            name: name.to_string(),
+            pre_pos: s(pre_pos, 10),
+            pre_neg: s(pre_neg, 10),
+            add: s(add, 10),
+            del: s(del, 10),
+            conditional: vec![],
+            cost,
+        }
+    }
+
+    #[test]
+    fn test_backward_rpg_goal_facts_cost_zero() {
+        let task = make_test_task(
+            3,
+            &[0],
+            &[2],
+            &[],
+            vec![
+                make_op(0, "op0", &[0], &[], &[1], &[], 1),
+                make_op(1, "op1", &[1], &[], &[2], &[], 1),
+            ],
+        );
+        let costs = rpg_backward_fact_costs(&task, &task.goal_pos, &task.goal_neg);
+        assert_eq!(costs[2], 0.0);
+    }
+
+    #[test]
+    fn test_backward_rpg_unreachable_fact_stays_infinity() {
+        let task = make_test_task(
+            4,
+            &[0],
+            &[3],
+            &[],
+            vec![
+                make_op(0, "op0", &[0], &[], &[1], &[], 1),
+                make_op(1, "op1", &[1], &[], &[3], &[], 1),
+            ],
+        );
+        let costs = rpg_backward_fact_costs(&task, &task.goal_pos, &task.goal_neg);
+        assert_eq!(costs[2], f64::INFINITY);
+    }
+
+    #[test]
+    fn test_backward_rpg_two_step_regression() {
+        let task = make_test_task(
+            4,
+            &[0],
+            &[3],
+            &[],
+            vec![
+                make_op(0, "op0", &[0], &[], &[1], &[], 1),
+                make_op(1, "op1", &[1], &[], &[3], &[], 1),
+            ],
+        );
+        let costs = rpg_backward_fact_costs(&task, &task.goal_pos, &task.goal_neg);
+        assert!(costs[1] >= 1.0);
+        assert!(costs[0] >= 2.0);
+    }
+}

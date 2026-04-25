@@ -1,7 +1,8 @@
 pub mod astar;
 pub mod bfs;
-pub mod bidij;
+pub mod bibae;
 pub mod bibfs_uc;
+pub mod bidij;
 pub mod binbs;
 pub mod gbfs;
 
@@ -157,8 +158,8 @@ impl Registry {
         use crate::heuristic::zero::HZero;
         use crate::search::astar::Astar;
         use crate::search::bfs::Bfs;
-        use crate::search::bidij::BiDij;
         use crate::search::bibfs_uc::BibfsUc;
+        use crate::search::bidij::BiDij;
         use crate::search::gbfs::Gbfs;
 
         self.register_planner(RegisteredPlanner {
@@ -216,7 +217,11 @@ impl Registry {
                 | PlannerCapabilities::NEGATIVE_PRECONDS
                 | PlannerCapabilities::ACTION_COSTS,
             factory: std::sync::Arc::new(|cfg| {
-                let h_name = cfg.opts.get("heuristic").map(|s| s.as_str()).unwrap_or("hff");
+                let h_name = cfg
+                    .opts
+                    .get("heuristic")
+                    .map(|s| s.as_str())
+                    .unwrap_or("hff");
                 let h: Box<dyn crate::search::Heuristic> = match h_name {
                     "hadd" => Box::new(HAdd),
                     "hmax" => Box::new(HMax),
@@ -226,6 +231,30 @@ impl Registry {
                     _ => Box::new(HFF),
                 };
                 Ok(Box::new(binbs::Nbs::new(h)))
+            }),
+        });
+
+        self.register_planner(RegisteredPlanner {
+            name: "bibae",
+            description: "Bidirectional A* with Error (BAE*, Sadhukhan 2013)",
+            capabilities: PlannerCapabilities::CLASSICAL
+                | PlannerCapabilities::NEGATIVE_PRECONDS
+                | PlannerCapabilities::ACTION_COSTS,
+            factory: std::sync::Arc::new(|cfg| {
+                let h_name = cfg
+                    .opts
+                    .get("heuristic")
+                    .map(|s| s.as_str())
+                    .unwrap_or("hff");
+                let h: Box<dyn crate::search::Heuristic> = match h_name {
+                    "hadd" => Box::new(HAdd),
+                    "hmax" => Box::new(HMax),
+                    "hff" => Box::new(HFF),
+                    "blind" => Box::new(crate::heuristic::BlindHeuristic),
+                    "zero" => Box::new(HZero),
+                    _ => Box::new(HFF),
+                };
+                Ok(Box::new(bibae::BiBae::new(h)))
             }),
         });
 

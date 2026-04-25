@@ -1,6 +1,6 @@
-// Note: for cost-aware bidirectional search, use the `bibfs-cost` planner
-// (Bidirectional Dijkstra). BAE* variant would extend it with a forward+backward
-// heuristic (NBS already implemented in `search::binbs`).
+// Note: for cost-aware bidirectional search, use the `bidij` planner
+// (Bidirectional Dijkstra). NBS is implemented in `search::binbs`; BAE* is
+// implemented in `search::bibae`.
 // TODO(cond-effects): support via regression through conditional effects
 // TODO(perf): per-FactId bucket index to avoid O(|F|·|B|) scan
 
