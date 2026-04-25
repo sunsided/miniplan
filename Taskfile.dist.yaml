@@ -104,6 +104,18 @@ tasks:
       - task: example:air-cargo:nbs
       - task: example:gripper:bae
       - task: example:air-cargo:bae
+      - task: example:gripper:nbs:zero
+      - task: example:gripper:nbs:hmax
+      - task: example:gripper:bae:zero
+      - task: example:gripper:bae:hmax
+      - task: example:air-cargo:gbfs
+      - task: example:air-cargo:bidij
+      - task: example:air-cargo:nbs:zero
+      - task: example:air-cargo:bae:zero
+      - task: example:compare:bidij
+      - task: example:compare:nbs
+      - task: example:compare:nbs-heuristics
+      - task: example:compare:bae-heuristics
 
   example:blocksworld:
     desc: Solve the blocksworld-4 problem (4 blocks, tower stacking)
@@ -316,7 +328,7 @@ tasks:
     aliases:
       - tui
     cmds:
-      - "{{.CARGO}} run --bin miniplan -- tui examples/pddl/*.pddl"
+      - "{{.CARGO}} run --release --bin miniplan -- tui examples/pddl/*.pddl"
 
   docs:
     desc: Build rustdoc
