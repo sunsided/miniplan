@@ -3,6 +3,8 @@ use pddl::{InitElement, PreconditionGoalDefinition};
 
 use crate::error::MiniplanError;
 use crate::ground::cost::extract_action_cost;
+use crate::ground::derived;
+use crate::ground::derived::collect as collect_derived;
 use crate::ground::effect::extract_effects;
 use crate::ground::formula::{build_state_from_literals, walk_goal_definition};
 use crate::ground::types::{extract_objects, extract_types, objects_of_type};
@@ -41,6 +43,7 @@ pub fn ground(domain: &Domain, problem: &Problem) -> Result<Task, MiniplanError>
     };
 
     build_init_state(&mut task, problem)?;
+    derived::expand_into_init(&mut task, domain)?;
     build_goal_state(&mut task, problem)?;
     ground_actions(&mut task, domain)?;
 
@@ -70,6 +73,31 @@ fn build_fact_universe(
             }
         } else {
             generate_predicate_groundings(&pred_name, arity, objects, &mut facts, &mut fact_index);
+        }
+    }
+
+    let derived_rules = collect_derived(domain)?;
+    for rule in &derived_rules.rules {
+        let arity = rule.params.len();
+        if arity == 0 {
+            let fact = Fact {
+                predicate: rule.head_name.clone(),
+                args: Vec::new(),
+            };
+            #[allow(clippy::map_entry)]
+            if !fact_index.contains_key(&fact) {
+                let id = FactId(facts.len());
+                facts.push(fact.clone());
+                fact_index.insert(fact, id);
+            }
+        } else {
+            generate_predicate_groundings(
+                &rule.head_name,
+                arity,
+                objects,
+                &mut facts,
+                &mut fact_index,
+            );
         }
     }
 
@@ -187,6 +215,7 @@ fn ground_actions(task: &mut Task, domain: &Domain) -> Result<(), MiniplanError>
         if let StructureDef::Action(action) = def {
             ground_action(task, action)?;
         }
+        // StructureDef::Derived is handled by derived::expand_into_init above.
     }
     Ok(())
 }

@@ -208,6 +208,7 @@ See [docs.rs](https://docs.rs/miniplan) for the full API.
 | Conditional effects | Supported |
 | Disjunctive preconditions | Supported (via DNF grounding) |
 | Quantified preconditions | Partial |
+| Derived predicates (static bodies) | Supported |
 | Numeric fluents | Not yet |
 | Durative actions | Not yet |
 
