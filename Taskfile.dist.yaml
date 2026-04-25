@@ -79,3 +79,87 @@ tasks:
     desc: Remove Cargo build artifacts
     cmds:
       - "{{.CARGO}} clean"
+
+  # ── Examples ──────────────────────────────────────────────
+
+  example:blocksworld:
+    desc: Solve the blocksworld-4 problem (4 blocks, tower stacking)
+    cmds:
+      - cmd: '{{.CARGO}} run --bin miniplan -- solve --planner {{.PLANNER}} --stats examples/pddl/blocksworld.pddl'
+    requires:
+      vars:
+        - name: PLANNER
+          enum: [bfs, astar, gbfs]
+    vars:
+      PLANNER: '{{.PLANNER | default "astar"}}'
+
+  example:gripper-small:
+    desc: Solve the gripper-2 problem (2 balls, smoke test)
+    cmds:
+      - cmd: '{{.CARGO}} run --bin miniplan -- solve --planner {{.PLANNER}} --stats examples/pddl/gripper-small.pddl'
+    requires:
+      vars:
+        - name: PLANNER
+          enum: [bfs, astar, gbfs]
+    vars:
+      PLANNER: '{{.PLANNER | default "bfs"}}'
+
+  example:gripper:
+    desc: Solve the gripper-4 problem (4 balls, 8 objects, 36 operators)
+    cmds:
+      - cmd: '{{.CARGO}} run --bin miniplan -- solve --planner {{.PLANNER}} --stats examples/pddl/gripper.pddl'
+    requires:
+      vars:
+        - name: PLANNER
+          enum: [bfs, astar, gbfs]
+    vars:
+      PLANNER: '{{.PLANNER | default "astar"}}'
+
+  example:gripper:bfs:
+    desc: Solve gripper-4 with BFS (optimal, explores ~370 nodes)
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bfs --stats examples/pddl/gripper.pddl"
+
+  example:gripper:astar:
+    desc: Solve gripper-4 with A* + hFF (optimal, explores ~158 nodes, slower per-node)
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner astar --stats examples/pddl/gripper.pddl"
+
+  example:logistics:
+    desc: Solve the logistics-simple problem (2 packages, 2 locations)
+    cmds:
+      - cmd: '{{.CARGO}} run --bin miniplan -- solve --planner {{.PLANNER}} --stats examples/pddl/logistics.pddl'
+    requires:
+      vars:
+        - name: PLANNER
+          enum: [bfs, astar, gbfs]
+    vars:
+      PLANNER: '{{.PLANNER | default "bfs"}}'
+
+  example:all:
+    desc: Run all example problems with their default planner
+    cmds:
+      - task: example:blocksworld
+        vars:
+          PLANNER: astar
+      - task: example:gripper-small
+        vars:
+          PLANNER: bfs
+      - task: example:gripper:astar
+      - task: example:logistics
+        vars:
+          PLANNER: bfs
+
+  example:compare:
+    desc: Solve gripper-4 with BFS and A* side by side
+    cmds:
+      - echo "=== BFS (optimal, more nodes expanded) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner bfs --stats examples/pddl/gripper.pddl"
+      - echo ""
+      - echo "=== A* + hFF (optimal, fewer nodes, higher per-node cost) ==="
+      - "{{.CARGO}} run --bin miniplan -- solve --planner astar --stats examples/pddl/gripper.pddl"
+
+  example:check:
+    desc: Ground all example problems without searching
+    cmds:
+      - ls examples/pddl/*.pddl | xargs -I {} sh -c 'echo "--- {} ---"; {{.CARGO}} run --bin miniplan -- check "{}"; echo ""'

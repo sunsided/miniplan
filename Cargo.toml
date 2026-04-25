@@ -9,7 +9,7 @@ license = "EUPL-1.2"
 repository = "https://github.com/sunsided/miniplan"
 
 [workspace.dependencies]
-pddl = "0.1"
+pddl = { git = "https://github.com/sunsided/pddl-rs", branch = "main" }
 thiserror = "1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

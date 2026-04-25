@@ -23,9 +23,65 @@ pub fn load_problem_path(path: &Path) -> Result<Problem, MiniplanError> {
     load_problem_str(&s)
 }
 
+fn extract_define_blocks(input: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut depth = 0;
+    let mut start: Option<usize> = None;
+
+    for (i, c) in input.char_indices() {
+        match c {
+            '(' => {
+                if depth == 0 {
+                    start = Some(i);
+                }
+                depth += 1;
+            }
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(s) = start {
+                        blocks.push(input[s..=i].to_string());
+                        start = None;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    blocks
+}
+
 pub fn load_combined_str(s: &str) -> Result<(Domain, Problem), MiniplanError> {
-    let domain = load_domain_str(s)?;
-    let problem = load_problem_str(s)?;
+    let blocks = extract_define_blocks(s);
+    if blocks.is_empty() {
+        return Err(MiniplanError::Parse(
+            "no (define ...) blocks found".into(),
+        ));
+    }
+
+    let mut domain: Option<Domain> = None;
+    let mut problem: Option<Problem> = None;
+
+    for block in &blocks {
+        if domain.is_none() {
+            if let Ok(d) = Domain::from_str(block) {
+                domain = Some(d);
+                continue;
+            }
+        }
+        if problem.is_none() {
+            if let Ok(p) = Problem::from_str(block) {
+                problem = Some(p);
+                continue;
+            }
+        }
+    }
+
+    let domain = domain.ok_or_else(|| MiniplanError::Parse("no domain definition found".into()))?;
+    let problem =
+        problem.ok_or_else(|| MiniplanError::Parse("no problem definition found".into()))?;
+
     Ok((domain, problem))
 }
 
