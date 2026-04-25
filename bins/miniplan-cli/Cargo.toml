@@ -9,7 +9,7 @@ name = "miniplan"
 path = "src/main.rs"
 
 [dependencies]
-miniplan = { path = "../miniplan", version = "0.1" }
+miniplan.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 humantime.workspace = true

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/miniplan", "crates/miniplan-cli"]
+members = ["crates/miniplan", "bins/miniplan-cli"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,6 +10,7 @@ repository = "https://github.com/sunsided/miniplan"
 
 [workspace.dependencies]
 pddl = { git = "https://github.com/sunsided/pddl-rs", branch = "main" }
+miniplan.path = "crates/miniplan"
 thiserror = "1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

@@ -80,7 +80,25 @@ tasks:
     cmds:
       - "{{.CARGO}} clean"
 
-  # ── Examples ──────────────────────────────────────────────
+  example:all:
+    desc: Run all example problems with their default planner
+    aliases:
+      - example
+      - examples
+    cmds:
+      - task: example:blocksworld
+        vars:
+          PLANNER: astar
+      - task: example:gripper-small
+        vars:
+          PLANNER: bfs
+      - task: example:gripper:astar
+      - task: example:logistics
+        vars:
+          PLANNER: bfs
+      - task: example:air-cargo:astar
+      - task: example:compare
+      - task: example:air-cargo:showoff
 
   example:blocksworld:
     desc: Solve the blocksworld-4 problem (4 blocks, tower stacking)
@@ -165,21 +183,6 @@ tasks:
       - 'echo ""'
       - 'echo "=== A* + hFF (optimal: 13 actions, slower) ==="'
       - "{{.CARGO}} run --bin miniplan -- solve --planner astar --stats examples/pddl/air-cargo.pddl"
-
-  example:all:
-    desc: Run all example problems with their default planner
-    cmds:
-      - task: example:blocksworld
-        vars:
-          PLANNER: astar
-      - task: example:gripper-small
-        vars:
-          PLANNER: bfs
-      - task: example:gripper:astar
-      - task: example:logistics
-        vars:
-          PLANNER: bfs
-      - task: example:air-cargo:astar
 
   example:compare:
     desc: Solve gripper-4 with BFS and A* side by side
