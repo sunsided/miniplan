@@ -1,5 +1,6 @@
 pub mod astar;
 pub mod bfs;
+pub mod bibfs_uc;
 pub mod gbfs;
 
 use std::time::Duration;
@@ -153,6 +154,7 @@ impl Registry {
         use crate::heuristic::relaxed::{HAdd, HFF, HMax};
         use crate::search::astar::Astar;
         use crate::search::bfs::Bfs;
+        use crate::search::bibfs_uc::BibfsUc;
         use crate::search::gbfs::Gbfs;
 
         self.register_planner(RegisteredPlanner {
@@ -185,6 +187,13 @@ impl Registry {
                 let h = Box::new(HFF);
                 Ok(Box::new(Gbfs::new(h)))
             }),
+        });
+
+        self.register_planner(RegisteredPlanner {
+            name: "bibfs-uc",
+            description: "Bidirectional BFS (uniform-cost, not cost-aware)",
+            capabilities: PlannerCapabilities::CLASSICAL | PlannerCapabilities::NEGATIVE_PRECONDS,
+            factory: std::sync::Arc::new(|_cfg| Ok(Box::new(BibfsUc::new()))),
         });
 
         self.register_heuristic(RegisteredHeuristic {

@@ -2,13 +2,13 @@ use std::fmt;
 
 use crate::task::OpId;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlanStep {
     pub op_id: OpId,
     pub op_name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Plan {
     pub steps: Vec<PlanStep>,
     pub cost: f64,

@@ -31,4 +31,8 @@ pub enum MiniplanError {
 
     #[error("invalid heuristic name: {0}")]
     InvalidHeuristic(String),
+
+    // TODO(cond-effects): support via regression through conditional effects
+    #[error("bidirectional search does not support operators with conditional effects")]
+    UnsupportedConditionalEffects,
 }
