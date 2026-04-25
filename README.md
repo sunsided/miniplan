@@ -40,8 +40,6 @@ A PDDL planner library built around the [`pddl`](https://github.com/sunsided/pdd
 miniplan = "0.1"
 ```
 
-> **Note:** The `pddl` dependency is currently sourced from a git branch rather than crates.io. Until a release is published, library users must add `pddl` via the same git source shown above.
-
 ### CLI
 
 ```bash
