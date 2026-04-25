@@ -136,6 +136,36 @@ tasks:
     vars:
       PLANNER: '{{.PLANNER | default "bfs"}}'
 
+  example:air-cargo:
+    desc: Solve the air-cargo-p3 problem (4 cargo, 2 planes, 4 airports)
+    cmds:
+      - cmd: '{{.CARGO}} run --bin miniplan -- solve --planner {{.PLANNER}} --stats examples/pddl/air-cargo.pddl'
+    requires:
+      vars:
+        - name: PLANNER
+          enum: [bfs, astar, gbfs]
+    vars:
+      PLANNER: '{{.PLANNER | default "astar"}}'
+
+  example:air-cargo:gbfs:
+    desc: Solve air-cargo-p3 with GBFS (fast, non-optimal)
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner gbfs --stats examples/pddl/air-cargo.pddl"
+
+  example:air-cargo:astar:
+    desc: "Solve air-cargo-p3 with A* + hFF (optimal: 13 actions)"
+    cmds:
+      - "{{.CARGO}} run --bin miniplan -- solve --planner astar --stats examples/pddl/air-cargo.pddl"
+
+  example:air-cargo:showoff:
+    desc: "Air Cargo P3 - GBFS (fast, non-optimal) vs A*+hFF (optimal: 13 actions, slower)"
+    cmds:
+      - 'echo "=== GBFS + hFF (fast, NON-optimal on this problem) ==="'
+      - "{{.CARGO}} run --bin miniplan -- solve --planner gbfs --stats examples/pddl/air-cargo.pddl"
+      - 'echo ""'
+      - 'echo "=== A* + hFF (optimal: 13 actions, slower) ==="'
+      - "{{.CARGO}} run --bin miniplan -- solve --planner astar --stats examples/pddl/air-cargo.pddl"
+
   example:all:
     desc: Run all example problems with their default planner
     cmds:
@@ -149,6 +179,7 @@ tasks:
       - task: example:logistics
         vars:
           PLANNER: bfs
+      - task: example:air-cargo:astar
 
   example:compare:
     desc: Solve gripper-4 with BFS and A* side by side
