@@ -222,7 +222,7 @@ fn reconstruct_plan_from_meet(
 
 impl Planner for Nbs {
     fn name(&self) -> &str {
-        "binbs"
+        "nbs"
     }
 
     fn describe(&self) -> &str {

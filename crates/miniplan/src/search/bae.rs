@@ -181,11 +181,11 @@ impl Ord for BackwardNodeG {
     }
 }
 
-pub struct BiBae {
+pub struct Bae {
     h_forward: Box<dyn Heuristic>,
 }
 
-impl BiBae {
+impl Bae {
     pub fn new(h_forward: Box<dyn Heuristic>) -> Self {
         Self { h_forward }
     }
@@ -305,9 +305,9 @@ fn reconstruct_plan_from_meet(
     build_plan_from_ops(&all_ops, task)
 }
 
-impl Planner for BiBae {
+impl Planner for Bae {
     fn name(&self) -> &str {
-        "bibae"
+        "bae"
     }
 
     fn describe(&self) -> &str {
@@ -803,7 +803,7 @@ mod tests {
     use crate::search::astar::Astar;
     use crate::search::bibfs_uc::BibfsUc;
     use crate::search::bidij::BiDij;
-    use crate::search::binbs::Nbs;
+    use crate::search::nbs::Nbs;
     use crate::task::{CondEffect, Fact, FactId, Task, TaskMeta, TypeHierarchy};
     use rustc_hash::FxHashMap;
 
@@ -895,18 +895,18 @@ mod tests {
             ],
         );
 
-        let mut bibae = BiBae::with_defaults();
+        let mut bae = Bae::with_defaults();
         let mut bibfs_uc = BibfsUc::new();
         let limits = SearchLimits::default();
-        let bibae_outcome = bibae.solve(&task, &limits).unwrap();
+        let bae_outcome = bae.solve(&task, &limits).unwrap();
         let uc_outcome = bibfs_uc.solve(&task, &limits).unwrap();
-        let (bibae_plan, uc_plan) = match (bibae_outcome, uc_outcome) {
+        let (bae_plan, uc_plan) = match (bae_outcome, uc_outcome) {
             (SearchOutcome::Plan(a, _), SearchOutcome::Plan(b, _)) => (a, b),
             _ => panic!("expected plans from both planners"),
         };
-        assert_eq!(bibae_plan.len(), uc_plan.len());
-        assert_eq!(bibae_plan.steps[0].op_id, OpId(0));
-        assert_eq!(bibae_plan.steps[1].op_id, OpId(1));
+        assert_eq!(bae_plan.len(), uc_plan.len());
+        assert_eq!(bae_plan.steps[0].op_id, OpId(0));
+        assert_eq!(bae_plan.steps[1].op_id, OpId(1));
     }
 
     #[test]
@@ -924,9 +924,9 @@ mod tests {
             ],
         );
 
-        let mut bibae = BiBae::with_defaults();
+        let mut bae = Bae::with_defaults();
         let limits = SearchLimits::default();
-        let outcome = bibae.solve(&task, &limits).unwrap();
+        let outcome = bae.solve(&task, &limits).unwrap();
         match outcome {
             SearchOutcome::Plan(plan, _) => {
                 assert_eq!(plan.cost, 2.0);
@@ -948,9 +948,9 @@ mod tests {
             vec![make_op(0, "op0", &[0], &[], &[1], &[], 1)],
         );
 
-        let mut bibae = BiBae::with_defaults();
+        let mut bae = Bae::with_defaults();
         let limits = SearchLimits::default();
-        let outcome = bibae.solve(&task, &limits).unwrap();
+        let outcome = bae.solve(&task, &limits).unwrap();
         assert!(matches!(outcome, SearchOutcome::Unsolvable(_)));
     }
 
@@ -973,9 +973,9 @@ mod tests {
 
         let task = make_test_task(3, &[0], &[2], &[], vec![op]);
 
-        let mut bibae = BiBae::with_defaults();
+        let mut bae = Bae::with_defaults();
         let limits = SearchLimits::default();
-        let result = bibae.solve(&task, &limits);
+        let result = bae.solve(&task, &limits);
         assert!(matches!(
             result,
             Err(MiniplanError::UnsupportedConditionalEffects)
@@ -992,9 +992,9 @@ mod tests {
             vec![make_op(0, "op0", &[0], &[], &[1], &[], 1)],
         );
 
-        let mut bibae = BiBae::with_defaults();
+        let mut bae = Bae::with_defaults();
         let limits = SearchLimits::default();
-        let outcome = bibae.solve(&task, &limits).unwrap();
+        let outcome = bae.solve(&task, &limits).unwrap();
         match outcome {
             SearchOutcome::Plan(plan, _) => {
                 assert!(plan.is_empty());
@@ -1019,18 +1019,18 @@ mod tests {
             ],
         );
 
-        let mut bibae = BiBae::with_defaults();
+        let mut bae = Bae::with_defaults();
         let mut bidij = BiDij::new();
         let limits = SearchLimits::default();
-        let bibae_outcome = bibae.solve(&task, &limits).unwrap();
+        let bae_outcome = bae.solve(&task, &limits).unwrap();
         let bidij_outcome = bidij.solve(&task, &limits).unwrap();
 
-        let (bibae_plan, bidij_plan) = match (bibae_outcome, bidij_outcome) {
+        let (bae_plan, bidij_plan) = match (bae_outcome, bidij_outcome) {
             (SearchOutcome::Plan(a, _), SearchOutcome::Plan(b, _)) => (a, b),
             _ => panic!("expected plans from both planners"),
         };
-        assert_eq!(bibae_plan.cost, bidij_plan.cost);
-        assert_eq!(bibae_plan.cost, 2.0);
+        assert_eq!(bae_plan.cost, bidij_plan.cost);
+        assert_eq!(bae_plan.cost, 2.0);
     }
 
     #[test]
@@ -1048,18 +1048,18 @@ mod tests {
             ],
         );
 
-        let mut bibae = BiBae::with_defaults();
+        let mut bae = Bae::with_defaults();
         let mut astar = Astar::new(Box::new(HFF));
         let limits = SearchLimits::default();
-        let bibae_outcome = bibae.solve(&task, &limits).unwrap();
+        let bae_outcome = bae.solve(&task, &limits).unwrap();
         let astar_outcome = astar.solve(&task, &limits).unwrap();
 
-        let (bibae_plan, astar_plan) = match (bibae_outcome, astar_outcome) {
+        let (bae_plan, astar_plan) = match (bae_outcome, astar_outcome) {
             (SearchOutcome::Plan(a, _), SearchOutcome::Plan(b, _)) => (a, b),
             _ => panic!("expected plans from both planners"),
         };
-        assert_eq!(bibae_plan.cost, astar_plan.cost);
-        assert_eq!(bibae_plan.cost, 2.0);
+        assert_eq!(bae_plan.cost, astar_plan.cost);
+        assert_eq!(bae_plan.cost, 2.0);
     }
 
     #[test]
@@ -1077,18 +1077,18 @@ mod tests {
             ],
         );
 
-        let mut bibae = BiBae::with_defaults();
+        let mut bae = Bae::with_defaults();
         let mut nbs = Nbs::with_defaults();
         let limits = SearchLimits::default();
-        let bibae_outcome = bibae.solve(&task, &limits).unwrap();
+        let bae_outcome = bae.solve(&task, &limits).unwrap();
         let nbs_outcome = nbs.solve(&task, &limits).unwrap();
 
-        let (bibae_plan, nbs_plan) = match (bibae_outcome, nbs_outcome) {
+        let (bae_plan, nbs_plan) = match (bae_outcome, nbs_outcome) {
             (SearchOutcome::Plan(a, _), SearchOutcome::Plan(b, _)) => (a, b),
             _ => panic!("expected plans from both planners"),
         };
-        assert_eq!(bibae_plan.cost, nbs_plan.cost);
-        assert_eq!(bibae_plan.cost, 2.0);
+        assert_eq!(bae_plan.cost, nbs_plan.cost);
+        assert_eq!(bae_plan.cost, 2.0);
     }
 
     #[test]
@@ -1105,19 +1105,19 @@ mod tests {
             ],
         );
 
-        let mut bibae = BiBae::with_defaults();
+        let mut bae = Bae::with_defaults();
         let mut astar = Astar::new(Box::new(HFF));
         let limits = SearchLimits::default();
-        let bibae_outcome = bibae.solve(&task, &limits).unwrap();
+        let bae_outcome = bae.solve(&task, &limits).unwrap();
         let astar_outcome = astar.solve(&task, &limits).unwrap();
 
-        let (bibae_plan, astar_plan) = match (bibae_outcome, astar_outcome) {
+        let (bae_plan, astar_plan) = match (bae_outcome, astar_outcome) {
             (SearchOutcome::Plan(a, _), SearchOutcome::Plan(b, _)) => (a, b),
             _ => panic!("expected plans from both planners"),
         };
-        assert_eq!(bibae_plan.cost, astar_plan.cost);
-        assert_eq!(bibae_plan.cost, 3.0);
-        assert_eq!(bibae_plan.len(), 3);
+        assert_eq!(bae_plan.cost, astar_plan.cost);
+        assert_eq!(bae_plan.cost, 3.0);
+        assert_eq!(bae_plan.len(), 3);
     }
 
     #[test]
@@ -1134,13 +1134,13 @@ mod tests {
             ],
         );
 
-        let mut bibae = BiBae::with_defaults();
+        let mut bae = Bae::with_defaults();
         let mut bidij = BiDij::new();
         let limits = SearchLimits::default();
-        let bibae_outcome = bibae.solve(&task, &limits).unwrap();
+        let bae_outcome = bae.solve(&task, &limits).unwrap();
         let bidij_outcome = bidij.solve(&task, &limits).unwrap();
 
-        let (bibae_plan, bibae_stats) = match bibae_outcome {
+        let (bae_plan, bae_stats) = match bae_outcome {
             SearchOutcome::Plan(plan, stats) => (plan, stats),
             _ => panic!("expected a plan"),
         };
@@ -1149,8 +1149,8 @@ mod tests {
             _ => panic!("expected a plan"),
         };
 
-        assert_eq!(bibae_plan.cost, bidij_plan.cost);
-        assert!(bibae_stats.nodes_expanded <= bidij_stats.nodes_expanded);
+        assert_eq!(bae_plan.cost, bidij_plan.cost);
+        assert!(bae_stats.nodes_expanded <= bidij_stats.nodes_expanded);
     }
 
     #[test]
@@ -1168,27 +1168,27 @@ mod tests {
             ],
         );
 
-        let mut bibae = BiBae::with_defaults();
-        let mut binbs = Nbs::with_defaults();
+        let mut bae = Bae::with_defaults();
+        let mut nbs = Nbs::with_defaults();
         let limits = SearchLimits::default();
-        let bibae_outcome = bibae.solve(&task, &limits).unwrap();
-        let binbs_outcome = binbs.solve(&task, &limits).unwrap();
+        let bae_outcome = bae.solve(&task, &limits).unwrap();
+        let nbs_outcome = nbs.solve(&task, &limits).unwrap();
 
-        let (bibae_plan, bibae_stats) = match bibae_outcome {
+        let (bae_plan, bae_stats) = match bae_outcome {
             SearchOutcome::Plan(plan, stats) => (plan, stats),
             _ => panic!("expected a plan"),
         };
-        let (binbs_plan, binbs_stats) = match binbs_outcome {
+        let (nbs_plan, nbs_stats) = match nbs_outcome {
             SearchOutcome::Plan(plan, stats) => (plan, stats),
             _ => panic!("expected a plan"),
         };
 
-        assert_eq!(bibae_plan.cost, binbs_plan.cost);
+        assert_eq!(bae_plan.cost, nbs_plan.cost);
         assert!(
-            bibae_stats.nodes_expanded <= binbs_stats.nodes_expanded * 2,
+            bae_stats.nodes_expanded <= nbs_stats.nodes_expanded * 2,
             "BAE* expansions ({}) should be within 2x of NBS ({})",
-            bibae_stats.nodes_expanded,
-            binbs_stats.nodes_expanded
+            bae_stats.nodes_expanded,
+            nbs_stats.nodes_expanded
         );
     }
 }

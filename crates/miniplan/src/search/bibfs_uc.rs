@@ -1,6 +1,6 @@
 // Note: for cost-aware bidirectional search, use the `bidij` planner
-// (Bidirectional Dijkstra). NBS is implemented in `search::binbs`; BAE* is
-// implemented in `search::bibae`.
+// (Bidirectional Dijkstra). NBS is implemented in `search::nbs`; BAE* is
+// implemented in `search::bae`.
 // TODO(cond-effects): support via regression through conditional effects
 // TODO(perf): per-FactId bucket index to avoid O(|F|·|B|) scan
 

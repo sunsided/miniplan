@@ -1,10 +1,10 @@
 pub mod astar;
+pub mod bae;
 pub mod bfs;
-pub mod bibae;
 pub mod bibfs_uc;
 pub mod bidij;
-pub mod binbs;
 pub mod gbfs;
+pub mod nbs;
 
 use std::time::Duration;
 
@@ -211,7 +211,7 @@ impl Registry {
         });
 
         self.register_planner(RegisteredPlanner {
-            name: "binbs",
+            name: "nbs",
             description: "Near-Optimal Bidirectional Search (Chen et al. 2017)",
             capabilities: PlannerCapabilities::CLASSICAL
                 | PlannerCapabilities::NEGATIVE_PRECONDS
@@ -230,12 +230,12 @@ impl Registry {
                     "zero" => Box::new(HZero),
                     _ => Box::new(HFF),
                 };
-                Ok(Box::new(binbs::Nbs::new(h)))
+                Ok(Box::new(nbs::Nbs::new(h)))
             }),
         });
 
         self.register_planner(RegisteredPlanner {
-            name: "bibae",
+            name: "bae",
             description: "Bidirectional A* with Error (BAE*, Sadhukhan 2013)",
             capabilities: PlannerCapabilities::CLASSICAL
                 | PlannerCapabilities::NEGATIVE_PRECONDS
@@ -254,7 +254,7 @@ impl Registry {
                     "zero" => Box::new(HZero),
                     _ => Box::new(HFF),
                 };
-                Ok(Box::new(bibae::BiBae::new(h)))
+                Ok(Box::new(bae::Bae::new(h)))
             }),
         });
 
