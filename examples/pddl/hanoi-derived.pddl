@@ -12,7 +12,7 @@
   (:predicates
     (on ?d - disc ?x - location)
     (clear ?x - location)
-    (smaller ?d1 - disc ?d2 - disc)
+    (smaller ?d1 - disc ?d2 - location)
     (is-peg ?x - peg)
   )
 

@@ -19,7 +19,8 @@ pub fn ground(domain: &Domain, problem: &Problem) -> Result<Task, MiniplanError>
     let types = extract_types(domain)?;
     let objects = extract_objects(domain, problem, &types)?;
 
-    let (facts, fact_index) = build_fact_universe(domain, &objects)?;
+    let derived_rules = collect_derived(domain)?;
+    let (facts, fact_index) = build_fact_universe(domain, &derived_rules, &objects)?;
 
     let num_facts = facts.len();
     let mut task = Task {
@@ -43,7 +44,7 @@ pub fn ground(domain: &Domain, problem: &Problem) -> Result<Task, MiniplanError>
     };
 
     build_init_state(&mut task, problem)?;
-    derived::expand_into_init(&mut task, domain)?;
+    derived::expand_into_init_with_rules(&mut task, &derived_rules)?;
     build_goal_state(&mut task, problem)?;
     ground_actions(&mut task, domain)?;
 
@@ -52,6 +53,7 @@ pub fn ground(domain: &Domain, problem: &Problem) -> Result<Task, MiniplanError>
 
 fn build_fact_universe(
     domain: &Domain,
+    derived_rules: &derived::DerivedRuleSet,
     objects: &[Object],
 ) -> Result<(Vec<Fact>, rustc_hash::FxHashMap<Fact, FactId>), MiniplanError> {
     let mut facts = Vec::new();
@@ -76,8 +78,8 @@ fn build_fact_universe(
         }
     }
 
-    let derived_rules = collect_derived(domain)?;
-    for rule in &derived_rules.rules {
+    let derived_rules = &derived_rules;
+    for rule in derived_rules.rules.iter() {
         let arity = rule.params.len();
         if arity == 0 {
             let fact = Fact {

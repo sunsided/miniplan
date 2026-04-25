@@ -24,25 +24,21 @@ pub(crate) struct DerivedRuleSet {
 pub(crate) fn collect(domain: &Domain) -> Result<DerivedRuleSet, MiniplanError> {
     let mut rules = Vec::new();
 
-    let base_pred_names: FxHashSet<String> = domain
-        .predicates()
-        .iter()
-        .map(|p| p.predicate().to_string())
-        .collect();
-
     let fluent_names = extract_fluent_names(domain);
+
+    // First pass: collect all derived head names
+    let mut derived_head_names: FxHashSet<String> = FxHashSet::default();
+    for def in domain.structure().iter() {
+        if let StructureDef::Derived(dp) = def {
+            let head_name = dp.predicate().predicate().to_string();
+            derived_head_names.insert(head_name);
+        }
+    }
 
     for def in domain.structure().iter() {
         if let StructureDef::Derived(dp) = def {
             let head = dp.predicate();
             let head_name = head.predicate().to_string();
-
-            if base_pred_names.contains(&head_name) {
-                return Err(MiniplanError::Ground(format!(
-                    "derived predicate `{}` collides with a base predicate",
-                    head_name
-                )));
-            }
 
             if fluent_names.contains(&head_name) {
                 return Err(MiniplanError::Ground(format!(
@@ -74,7 +70,7 @@ pub(crate) fn collect(domain: &Domain) -> Result<DerivedRuleSet, MiniplanError> 
             }
 
             for dp_name in &body_pred_names {
-                if rules.iter().any(|r: &DerivedRule| &r.head_name == dp_name) {
+                if derived_head_names.contains(dp_name) && dp_name != &head_name {
                     return Err(MiniplanError::Ground(format!(
                         "derived predicate `{}` references another derived predicate `{}`; multi-layer derived predicates are not yet supported",
                         head_name, dp_name
@@ -120,31 +116,33 @@ fn collect_pred_names_in_effects(effects: &Option<pddl::Effects>, names: &mut Fx
         None => return,
     };
     for ce in effects.iter() {
-        match ce {
-            pddl::ConditionalEffect::Effect(pe) => {
-                collect_pred_names_in_primitive_effect(pe, names);
-            }
-            pddl::ConditionalEffect::Forall(forall) => {
-                for ce2 in forall.effects.iter() {
-                    if let pddl::ConditionalEffect::Effect(pe) = ce2 {
-                        collect_pred_names_in_primitive_effect(pe, names);
-                    }
-                }
-            }
-            pddl::ConditionalEffect::When(when) => {
-                names.extend(collect_pred_names_in_gd(&when.condition));
-                match &when.effect {
-                    pddl::EffectCondition::Single(pe) => {
-                        collect_pred_names_in_primitive_effect(pe, names);
-                    }
-                    pddl::EffectCondition::All(pes) => {
-                        for pe in pes {
-                            collect_pred_names_in_primitive_effect(pe, names);
-                        }
-                    }
-                }
+        collect_pred_names_in_conditional_effect(ce, names);
+    }
+}
+
+fn collect_pred_names_in_conditional_effect(
+    ce: &pddl::ConditionalEffect,
+    names: &mut FxHashSet<String>,
+) {
+    match ce {
+        pddl::ConditionalEffect::Effect(pe) => {
+            collect_pred_names_in_primitive_effect(pe, names);
+        }
+        pddl::ConditionalEffect::Forall(forall) => {
+            for ce2 in forall.effects.iter() {
+                collect_pred_names_in_conditional_effect(ce2, names);
             }
         }
+        pddl::ConditionalEffect::When(when) => match &when.effect {
+            pddl::EffectCondition::Single(pe) => {
+                collect_pred_names_in_primitive_effect(pe, names);
+            }
+            pddl::EffectCondition::All(pes) => {
+                for pe in pes {
+                    collect_pred_names_in_primitive_effect(pe, names);
+                }
+            }
+        },
     }
 }
 
@@ -212,8 +210,10 @@ fn type_to_string(t: &Type) -> String {
     }
 }
 
-pub(crate) fn expand_into_init(task: &mut Task, domain: &Domain) -> Result<(), MiniplanError> {
-    let rule_set = collect(domain)?;
+pub(crate) fn expand_into_init_with_rules(
+    task: &mut Task,
+    rule_set: &DerivedRuleSet,
+) -> Result<(), MiniplanError> {
     if rule_set.rules.is_empty() {
         return Ok(());
     }
@@ -368,8 +368,8 @@ pub(crate) fn eval_gd(
                 .collect();
             let bindings_list = generate_bindings_for_params(&typed_params, objects, types)?;
             for ext_bindings in &bindings_list {
-                let mut combined = bindings.to_vec();
-                combined.extend(ext_bindings.clone());
+                let mut combined = ext_bindings.clone();
+                combined.extend(bindings.to_vec());
                 if eval_gd(body, &combined, facts, objects, types)? {
                     return Ok(true);
                 }
@@ -387,8 +387,8 @@ pub(crate) fn eval_gd(
                 .collect();
             let bindings_list = generate_bindings_for_params(&typed_params, objects, types)?;
             for ext_bindings in &bindings_list {
-                let mut combined = bindings.to_vec();
-                combined.extend(ext_bindings.clone());
+                let mut combined = ext_bindings.clone();
+                combined.extend(bindings.to_vec());
                 if !eval_gd(body, &combined, facts, objects, types)? {
                     return Ok(false);
                 }
