@@ -8,7 +8,9 @@ use rustc_hash::FxHashMap;
 use crate::error::MiniplanError;
 use crate::heuristic::relaxed::rpg_fact_costs;
 use crate::plan::{Plan, PlanStep};
-use crate::search::{Heuristic, Planner, PlannerCapabilities, SearchLimits, SearchOutcome, SearchStats};
+use crate::search::{
+    Heuristic, Planner, PlannerCapabilities, SearchLimits, SearchOutcome, SearchStats,
+};
 use crate::task::{OpId, Operator, State, Task};
 
 type SubgoalKey = (State, State);
@@ -275,8 +277,17 @@ impl Planner for Nbs {
 
         let init_h = self.h_forward.estimate(task, &task.init).0;
         let init_f = 0.0 + init_h;
-        forward_open_f.push(ForwardNodeF { f: init_f, g: 0.0, state: task.init.clone(), epoch: 0 });
-        forward_open_g.push(ForwardNodeG { g: 0.0, state: task.init.clone(), epoch: 0 });
+        forward_open_f.push(ForwardNodeF {
+            f: init_f,
+            g: 0.0,
+            state: task.init.clone(),
+            epoch: 0,
+        });
+        forward_open_g.push(ForwardNodeG {
+            g: 0.0,
+            state: task.init.clone(),
+            epoch: 0,
+        });
         forward_g.insert(task.init.clone(), 0.0);
         forward_h.insert(task.init.clone(), init_h);
         forward_parent.insert(task.init.clone(), (None, OpId(usize::MAX)));
@@ -287,15 +298,25 @@ impl Planner for Nbs {
         let mut backward_open_g: BinaryHeap<BackwardNodeG> = BinaryHeap::new();
         let mut backward_g: FxHashMap<SubgoalKey, f64> = FxHashMap::default();
         let mut backward_h: FxHashMap<SubgoalKey, f64> = FxHashMap::default();
-        let mut backward_parent: FxHashMap<SubgoalKey, (Option<SubgoalKey>, OpId)> = FxHashMap::default();
+        let mut backward_parent: FxHashMap<SubgoalKey, (Option<SubgoalKey>, OpId)> =
+            FxHashMap::default();
         let mut backward_epoch: FxHashMap<SubgoalKey, u64> = FxHashMap::default();
         let mut backward_epoch_counter: u64 = 0;
 
         let sg_h_b = h_b(&init_subgoal, &fact_costs);
         if sg_h_b != f64::INFINITY {
             let sg_f = 0.0 + sg_h_b;
-            backward_open_f.push(BackwardNodeF { f: sg_f, g: 0.0, subgoal: init_subgoal.clone(), epoch: 0 });
-            backward_open_g.push(BackwardNodeG { g: 0.0, subgoal: init_subgoal.clone(), epoch: 0 });
+            backward_open_f.push(BackwardNodeF {
+                f: sg_f,
+                g: 0.0,
+                subgoal: init_subgoal.clone(),
+                epoch: 0,
+            });
+            backward_open_g.push(BackwardNodeG {
+                g: 0.0,
+                subgoal: init_subgoal.clone(),
+                epoch: 0,
+            });
             backward_g.insert(init_subgoal.clone(), 0.0);
             backward_h.insert(init_subgoal.clone(), sg_h_b);
             backward_parent.insert(init_subgoal.clone(), (None, OpId(usize::MAX)));
@@ -324,15 +345,9 @@ impl Planner for Nbs {
             let g_min_b = backward_open_g.peek().map(|n| n.g);
 
             let gm_bound = match (f_min_f, f_min_b, g_min_f, g_min_b) {
-                (Some(ff), Some(fb), Some(gf), Some(gb)) => {
-                    ff.max(fb).max(gf + gb)
-                }
-                (Some(ff), None, Some(gf), _) => {
-                    ff.max(gf)
-                }
-                (None, Some(fb), _, Some(gb)) => {
-                    fb.max(gb)
-                }
+                (Some(ff), Some(fb), Some(gf), Some(gb)) => ff.max(fb).max(gf + gb),
+                (Some(ff), None, Some(gf), _) => ff.max(gf),
+                (None, Some(fb), _, Some(gb)) => fb.max(gb),
                 _ => f64::INFINITY,
             };
 
@@ -461,8 +476,17 @@ impl Planner for Nbs {
                             forward_epoch.insert(next.clone(), ep);
                             stats.nodes_generated += 1;
                             let f = new_g + h;
-                            forward_open_f.push(ForwardNodeF { f, g: new_g, state: next.clone(), epoch: ep });
-                            forward_open_g.push(ForwardNodeG { g: new_g, state: next, epoch: ep });
+                            forward_open_f.push(ForwardNodeF {
+                                f,
+                                g: new_g,
+                                state: next.clone(),
+                                epoch: ep,
+                            });
+                            forward_open_g.push(ForwardNodeG {
+                                g: new_g,
+                                state: next,
+                                epoch: ep,
+                            });
                         }
                     }
                 }
@@ -521,7 +545,8 @@ impl Planner for Nbs {
                         if f_state.satisfies(&g_pos, &g_neg) {
                             let total = f_g + g;
                             if best_meet.as_ref().map_or(true, |(_, _, c)| total < *c) {
-                                best_meet = Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
+                                best_meet =
+                                    Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
                             }
                         }
                     }
@@ -536,7 +561,8 @@ impl Planner for Nbs {
                         if f_state.satisfies(&g_pos, &g_neg) {
                             let total = f_g + g;
                             if best_meet.as_ref().map_or(true, |(_, _, c)| total < *c) {
-                                best_meet = Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
+                                best_meet =
+                                    Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
                             }
                         }
                     }
@@ -580,8 +606,17 @@ impl Planner for Nbs {
                             backward_epoch.insert(new_sg.clone(), ep);
                             stats.nodes_generated += 1;
                             let f = new_g + new_h_b;
-                            backward_open_f.push(BackwardNodeF { f, g: new_g, subgoal: new_sg.clone(), epoch: ep });
-                            backward_open_g.push(BackwardNodeG { g: new_g, subgoal: new_sg, epoch: ep });
+                            backward_open_f.push(BackwardNodeF {
+                                f,
+                                g: new_g,
+                                subgoal: new_sg.clone(),
+                                epoch: ep,
+                            });
+                            backward_open_g.push(BackwardNodeG {
+                                g: new_g,
+                                subgoal: new_sg,
+                                epoch: ep,
+                            });
                         }
                     }
                 }
@@ -593,10 +628,10 @@ impl Planner for Nbs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::heuristic::relaxed::HFF;
     use crate::search::astar::Astar;
     use crate::search::bibfs_uc::BibfsUc;
     use crate::search::bidij::BiDij;
-    use crate::heuristic::relaxed::HFF;
     use crate::task::{CondEffect, Fact, FactId, Task, TaskMeta, TypeHierarchy};
     use rustc_hash::FxHashMap;
 

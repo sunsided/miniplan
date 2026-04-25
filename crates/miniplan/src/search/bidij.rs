@@ -1,6 +1,3 @@
-// TODO(bae-star): add BAE* variant using forward heuristic h_F and a
-//                 backward heuristic h_B (currently unavailable). Would live
-//                 in search/bibfs_bae.rs.
 // TODO(shared): factor regression helpers (is_relevant, is_consistent,
 //               regress_subgoal) into search/regression.rs so all three
 //               bidirectional planners can reuse them.
@@ -272,7 +269,10 @@ impl Planner for BiDij {
                             forward_g.insert(next.clone(), new_g);
                             forward_parent.insert(next.clone(), (Some(state.clone()), op.id));
                             stats.nodes_generated += 1;
-                            forward_open.push(ForwardNode { g: new_g, state: next });
+                            forward_open.push(ForwardNode {
+                                g: new_g,
+                                state: next,
+                            });
                         }
                     }
                 }
@@ -305,7 +305,8 @@ impl Planner for BiDij {
                         if f_state.satisfies(&g_pos, &g_neg) {
                             let total = f_g + g;
                             if best_meet.as_ref().map_or(true, |(_, _, c)| total < *c) {
-                                best_meet = Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
+                                best_meet =
+                                    Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
                             }
                         }
                     }
@@ -320,7 +321,8 @@ impl Planner for BiDij {
                         if f_state.satisfies(&g_pos, &g_neg) {
                             let total = f_g + g;
                             if best_meet.as_ref().map_or(true, |(_, _, c)| total < *c) {
-                                best_meet = Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
+                                best_meet =
+                                    Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
                             }
                         }
                     }
@@ -355,7 +357,10 @@ impl Planner for BiDij {
                                 (Some((g_pos.clone(), g_neg.clone())), op.id),
                             );
                             stats.nodes_generated += 1;
-                            backward_open.push(BackwardNode { g: new_g, subgoal: new_sg });
+                            backward_open.push(BackwardNode {
+                                g: new_g,
+                                subgoal: new_sg,
+                            });
                         }
                     }
                 }
@@ -433,9 +438,9 @@ fn reconstruct_plan_from_meet(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::heuristic::relaxed::HFF;
     use crate::search::astar::Astar;
     use crate::search::bibfs_uc::BibfsUc;
-    use crate::heuristic::relaxed::HFF;
     use crate::task::{CondEffect, Fact, FactId, Task, TaskMeta, TypeHierarchy};
     use rustc_hash::FxHashMap;
 
