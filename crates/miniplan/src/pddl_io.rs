@@ -27,9 +27,21 @@ fn extract_define_blocks(input: &str) -> Vec<String> {
     let mut blocks = Vec::new();
     let mut depth = 0;
     let mut start: Option<usize> = None;
+    let mut in_comment = false;
 
     for (i, c) in input.char_indices() {
+        if in_comment {
+            if c == '\n' {
+                in_comment = false;
+            }
+            continue;
+        }
+
         match c {
+            ';' => {
+                in_comment = true;
+                continue;
+            }
             '(' => {
                 if depth == 0 {
                     start = Some(i);

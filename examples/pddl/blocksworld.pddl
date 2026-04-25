@@ -1,3 +1,5 @@
+; Blocksworld domain — classic STRIPS planning benchmark
+; Source: AIPS 1998 planning competition
 (define (domain blocksworld)
     (:requirements :strips :typing)
     (:types block)

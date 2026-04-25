@@ -1,3 +1,5 @@
+; Gripper domain — robot with two grippers moving balls between rooms
+; Source: IPC benchmark suite
 (define (domain gripper)
     (:requirements :strips :typing)
     (:types room ball gripper)

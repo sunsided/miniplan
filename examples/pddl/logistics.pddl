@@ -1,3 +1,5 @@
+; Logistics domain — transport packages using trucks and airplanes
+; Source: IPC benchmark suite
 (define (domain logistics)
     (:requirements :strips :typing)
     (:types truck package city location)

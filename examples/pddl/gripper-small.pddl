@@ -1,3 +1,5 @@
+; Small gripper problem — 2 balls, 1 gripper for quick validation
+
 (define (domain gripper)
     (:requirements :strips :typing)
     (:types room ball gripper)

@@ -1,3 +1,5 @@
+; Air Cargo domain — transport cargo between airports using planes
+; handles (either cargo plane) typing
 (define (domain air-cargo)
     (:requirements :strips :typing)
     (:types cargo plane airport)
