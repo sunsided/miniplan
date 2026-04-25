@@ -55,9 +55,7 @@ fn extract_define_blocks(input: &str) -> Vec<String> {
 pub fn load_combined_str(s: &str) -> Result<(Domain, Problem), MiniplanError> {
     let blocks = extract_define_blocks(s);
     if blocks.is_empty() {
-        return Err(MiniplanError::Parse(
-            "no (define ...) blocks found".into(),
-        ));
+        return Err(MiniplanError::Parse("no (define ...) blocks found".into()));
     }
 
     let mut domain: Option<Domain> = None;
