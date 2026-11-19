@@ -25,13 +25,13 @@ fn tui_exits_on_no_problem() {
   (:predicates (at ?x))
 )
 ";
-    let file = std::env::temp_dir().join("miniplan_test_no_problem.pddl");
-    std::fs::write(&file, content).unwrap();
+    let dir = tempfile::tempdir().expect("temp dir");
+    let file = dir.path().join("input.pddl");
+    std::fs::write(&file, content).expect("write fixture");
 
-    let mut cmd = miniplan();
-    cmd.arg("tui").arg(&file).assert().failure();
-
-    let _ = std::fs::remove_file(&file);
+    let assert = miniplan().arg("tui").arg(&file).assert().code(1);
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(stderr.contains("no problem definition found"), "{stderr}");
 }
 
 /// `tui` refuses a bundle that has a problem but no domain.
@@ -45,11 +45,11 @@ fn tui_exits_on_no_domain() {
   (:goal (at obj1))
 )
 ";
-    let file = std::env::temp_dir().join("miniplan_test_no_domain.pddl");
-    std::fs::write(&file, content).unwrap();
+    let dir = tempfile::tempdir().expect("temp dir");
+    let file = dir.path().join("input.pddl");
+    std::fs::write(&file, content).expect("write fixture");
 
-    let mut cmd = miniplan();
-    cmd.arg("tui").arg(&file).assert().failure();
-
-    let _ = std::fs::remove_file(&file);
+    let assert = miniplan().arg("tui").arg(&file).assert().code(1);
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(stderr.contains("no domain definition found"), "{stderr}");
 }

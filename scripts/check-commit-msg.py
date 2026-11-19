@@ -14,7 +14,7 @@ import sys
 
 MAX_SUBJECT = 72
 GIT_GENERATED = re.compile(r"^(Merge |Revert \"|fixup! |squash! |amend! )")
-CONVENTIONAL = re.compile(r"^[a-z]+(\([^)]*\))?!?: ")
+CONVENTIONAL = re.compile(r"^[A-Za-z]+(\([^)]*\))?!?: ")
 PAST_TENSE_OK = {"embed", "feed", "need", "proceed", "seed", "shed", "speed", "succeed", "exceed", "bleed"}
 THIRD_PERSON = {
     "adds", "allows", "bumps", "changes", "cleans", "creates", "deletes", "documents", "drops",

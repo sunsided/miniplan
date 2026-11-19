@@ -144,6 +144,8 @@ fn write_solved_plan(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use crossterm::event::{KeyModifiers, MouseButton};
+    use miniplan::plan::{Plan, PlanStep};
+    use miniplan::task::OpId;
 
     use super::*;
     use crate::plan_writer::OutputFormat;
@@ -259,6 +261,13 @@ mod tests {
     #[test]
     fn mouse_events_are_forwarded() {
         let mut app = gripper_app();
+        app.solved_plan = Some(Plan {
+            steps: vec![PlanStep {
+                op_id: OpId(0),
+                op_name: "only".to_owned(),
+            }],
+            cost: 1.0,
+        });
         draw(&mut app, 120, 40);
         let plan = app.areas.plan.expect("plan area");
         let (col, row) = (plan.x + 1, plan.y + 1);
@@ -274,6 +283,7 @@ mod tests {
         assert_eq!(app.focus, AppFocus::PlanScroll);
 
         assert!(handle_event(&mut app, mouse(MouseEventKind::ScrollDown, col, row)).is_continue());
+        assert_eq!(app.plan_scroll_offset, 1);
         assert!(handle_event(&mut app, mouse(MouseEventKind::ScrollUp, col, row)).is_continue());
         assert_eq!(app.plan_scroll_offset, 0);
     }

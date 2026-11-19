@@ -114,11 +114,13 @@ fn plan_reaches_goal(task: &Task, plan: &Plan) -> bool {
     state.satisfies(&task.goal_pos, &task.goal_neg)
 }
 
-/// Runs `planner` without limits and returns its plan, or `None` if it proves unsolvability.
+/// Runs `planner` with the default limits and returns its plan, or `None` if it proves
+/// unsolvability.
 ///
 /// # Panics
 ///
-/// Panics when the planner errors or reports a limit, since no limits are set.
+/// Panics when the planner errors or reports a limit. The tasks are tiny, so neither the
+/// default node budget nor the default time budget is ever reached.
 fn solve(planner: &mut dyn Planner, task: &Task) -> Option<Plan> {
     match planner.solve(task, &SearchLimits::default()) {
         Ok(SearchOutcome::Plan(plan, _)) => Some(plan),

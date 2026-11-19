@@ -49,7 +49,10 @@ def doc_lines(path):
 
 
 def diagrams(path):
-    """Yield (start line, source) for each mermaid block in a file."""
+    """Yield (start line, source) for each mermaid block in a file.
+
+    An unterminated block at the end of a Markdown file yields a source of None.
+    """
     start, body = None, []
 
     for number, text in doc_lines(path):
@@ -65,6 +68,9 @@ def diagrams(path):
             continue
 
         body.append(text)
+
+    if start is not None:
+        yield start, None
 
 
 def puppeteer_args(workdir):
@@ -111,7 +117,10 @@ def main():
         extra = puppeteer_args(workdir)
 
         for index, (path, line, source) in enumerate(found):
-            error = render(mmdc, extra, source, workdir, index)
+            if source is None:
+                error = "unterminated ```mermaid block"
+            else:
+                error = render(mmdc, extra, source, workdir, index)
 
             if error is not None:
                 failures += 1
