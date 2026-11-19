@@ -19,5 +19,7 @@ applyTo: "**/*.md,docs/**"
   match `bins/miniplan-cli/src/main.rs`. Flag drift.
 - Keep badges, the MSRV section and the License section consistent with `Cargo.toml` and
   `REUSE.toml`.
-- Mermaid diagrams, if added, must match the code and stay under about 15 nodes. Adding the
-  first one also needs the docs.rs header setup and the mermaid lint step in CI.
+- Mermaid diagrams (the TUI module docs in `bins/miniplan-cli/src/tui.rs` and `tui/app.rs`)
+  must match the code and stay under about 15 nodes. `task lint:mermaid` and the CI `style`
+  job render them. A first diagram in the library crate also needs the docs.rs
+  `--html-in-header docs/mermaid.html` setup.

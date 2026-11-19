@@ -15,6 +15,7 @@ needs before it can be merged.
      [cargo-hack](https://github.com/taiki-e/cargo-hack);
    - [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) for coverage;
    - [typos](https://github.com/crate-ci/typos);
+   - [mermaid-cli](https://github.com/mermaid-js/mermaid-cli) when changing diagrams;
    - [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://docs.zizmor.sh/);
    - nightly Rust plus [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) for fuzzing.
 4. Install the git hooks with [prek](https://prek.j178.dev/) (`prek install`), or with
