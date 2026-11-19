@@ -12,6 +12,7 @@ use miniplan::search::{
     PlannerChoice, PlannerConfig, PlannerKind, SearchLimits, SearchOutcome, Solver,
 };
 
+mod duration;
 mod plan_writer;
 mod tui;
 
@@ -53,8 +54,8 @@ enum Command {
         heuristic: String,
 
         /// Timeout duration (e.g. "30s", "2m")
-        #[arg(short = 't', long)]
-        timeout: Option<humantime::Duration>,
+        #[arg(short = 't', long, value_parser = duration::parse_duration)]
+        timeout: Option<std::time::Duration>,
 
         /// Maximum number of nodes to expand
         #[arg(long)]
@@ -159,7 +160,7 @@ fn cmd_solve(
     problem_name: Option<&str>,
     planner_name: &str,
     heuristic_name: &str,
-    timeout: Option<humantime::Duration>,
+    timeout: Option<std::time::Duration>,
     max_nodes: Option<u64>,
     output: &str,
     format: &OutputFormat,
@@ -183,7 +184,7 @@ fn cmd_solve(
     );
 
     let limits = SearchLimits {
-        time_budget: timeout.map(|d| d.into()),
+        time_budget: timeout,
         node_budget: max_nodes,
         memory_mb: None,
     };

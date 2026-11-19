@@ -17,7 +17,6 @@ assert_cmd = "2"
 bitflags = "2"
 clap = { version = "4", features = ["derive"] }
 fixedbitset = "0.5"
-humantime = "2"
 indexmap = "2"
 miniplan = { version = "0.2.0", path = "crates/miniplan" }
 pddl = "0.2.0"

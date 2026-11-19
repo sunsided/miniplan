@@ -810,8 +810,8 @@ impl App {
             time_budget: if self.timeout_input.is_empty() {
                 None
             } else {
-                match self.timeout_input.parse::<humantime::Duration>() {
-                    Ok(d) => Some(d.into()),
+                match crate::duration::parse_duration(&self.timeout_input) {
+                    Ok(d) => Some(d),
                     Err(e) => {
                         self.set_flash_error(format!("Invalid timeout: {}", e));
                         return;
