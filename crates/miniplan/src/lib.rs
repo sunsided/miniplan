@@ -87,4 +87,3 @@ pub mod task;
 #[doc = include_str!("../../../README.md")]
 mod readme_doctests {}
 
-mod util;

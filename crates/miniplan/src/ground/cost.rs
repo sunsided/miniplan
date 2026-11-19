@@ -1,6 +1,6 @@
 //! Action costs from `(increase (total-cost) n)` effects.
 
-use pddl::{ActionDefinition, FluentExpression, FunctionHead, Optimization, Problem};
+use pddl::{ActionDefinition, FluentExpression, FunctionHead};
 use pddl::{AssignOp, ConditionalEffect, PrimitiveEffect};
 
 /// Returns the cost of `action`: the constant of its first top-level
@@ -58,17 +58,4 @@ fn extract_numeric_value(exp: &FluentExpression) -> Option<u32> {
         }
         _ => None,
     }
-}
-
-/// Whether the problem declares a `(:metric minimize ...)` objective.
-#[expect(
-    dead_code,
-    reason = "currently unused by the grounder; kept as the metric check for cost-aware \
-              grounding rather than removed in a lint-only change"
-)]
-pub(super) fn has_action_costs_metric(problem: &Problem) -> bool {
-    problem
-        .metric_spec()
-        .as_ref()
-        .is_some_and(|metric| matches!(metric.optimization(), Optimization::Minimize))
 }

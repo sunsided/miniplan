@@ -111,21 +111,6 @@ pub(crate) fn load_pddl_file_str(s: &str) -> Result<PddlFile, MiniplanError> {
     PddlFile::from_str(s).map_err(|e| MiniplanError::Parse(e.to_string()))
 }
 
-/// Reads and parses a file that may hold any number of definitions.
-///
-/// # Errors
-///
-/// Returns [`MiniplanError::Io`] when the file cannot be read, and
-/// [`MiniplanError::Parse`] when it is not valid PDDL.
-#[expect(
-    dead_code,
-    reason = "currently unused by the crate; kept as the path counterpart of \
-              `load_pddl_file_str` rather than removed in a lint-only change"
-)]
-fn load_pddl_file_path(path: &Path) -> Result<PddlFile, MiniplanError> {
-    load_pddl_file_str(&read_source(path)?)
-}
-
 /// A domain or problem definition, abstracted for name-based selection and
 /// for error messages.
 trait Definition: Clone {
