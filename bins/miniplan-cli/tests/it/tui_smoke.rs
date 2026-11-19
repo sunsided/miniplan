@@ -1,15 +1,22 @@
+//! Smoke tests for the `tui` subcommand's argument and input validation.
+//!
+//! Only failure paths are tested: they exit before the terminal is taken over.
+
 use assert_cmd::Command;
 
+/// A command for the `miniplan` binary built by this package.
 fn miniplan() -> Command {
     Command::cargo_bin("miniplan").unwrap()
 }
 
+/// `tui` without input files is a usage error (exit code 2).
 #[test]
 fn tui_requires_files() {
     let mut cmd = miniplan();
     cmd.arg("tui").assert().failure().code(2);
 }
 
+/// `tui` refuses a bundle that has a domain but no problem.
 #[test]
 fn tui_exits_on_no_problem() {
     let content = r"
@@ -27,6 +34,7 @@ fn tui_exits_on_no_problem() {
     let _ = std::fs::remove_file(&file);
 }
 
+/// `tui` refuses a bundle that has a problem but no domain.
 #[test]
 fn tui_exits_on_no_domain() {
     let content = r"

@@ -1,5 +1,8 @@
+//! End-to-end tests of the `miniplan` binary's non-interactive subcommands.
+
 use std::process::Command;
 
+/// `--help` succeeds and lists the main subcommands.
 #[test]
 fn test_cli_help() {
     let output = Command::new(env!("CARGO_BIN_EXE_miniplan"))
@@ -14,6 +17,7 @@ fn test_cli_help() {
     assert!(stdout.contains("list-planners"));
 }
 
+/// `list-planners` succeeds and lists the core planners.
 #[test]
 fn test_cli_list_planners() {
     let output = Command::new(env!("CARGO_BIN_EXE_miniplan"))
@@ -28,6 +32,7 @@ fn test_cli_list_planners() {
     assert!(stdout.contains("gbfs"));
 }
 
+/// `check` on a file with several problems fails without `--problem` and names every candidate.
 #[test]
 fn test_cli_check_multi_problem_errors() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -54,6 +59,7 @@ fn test_cli_check_multi_problem_errors() {
     assert!(stderr.contains("air-cargo-p3"), "stderr should list p3");
 }
 
+/// `check --problem` picks one problem out of a multi-problem file and prints its size.
 #[test]
 fn test_cli_check_with_problem_flag() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");

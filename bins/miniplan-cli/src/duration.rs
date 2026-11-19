@@ -69,6 +69,7 @@ fn unit_duration(value: u64, unit: &str) -> Result<Duration, String> {
         .ok_or_else(|| format!("duration too large: {value}{unit}"))
 }
 
+/// Unit tests for [`parse_duration`].
 #[cfg(test)]
 mod tests {
     use super::*;
