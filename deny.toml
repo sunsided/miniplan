@@ -1,0 +1,38 @@
+# cargo-deny configuration. Regenerate the full commented reference with `cargo deny init`.
+
+[graph]
+all-features = true
+
+[advisories]
+# Advisories (vulnerable, unmaintained, yanked) fail by default; ignore entries need a reason.
+ignore = []
+
+[licenses]
+# Permissive licenses plus the weak-copyleft ones this project family uses (see docs/licensing.md).
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CC0-1.0",
+  "EUPL-1.2",
+  "ISC",
+  "MIT",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Zlib",
+]
+confidence-threshold = 0.9
+# The allowlist is shared across projects; not every license appears in every dependency tree.
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Allows version-less path dependencies, but only in unpublished (publish = false) crates.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
