@@ -66,7 +66,7 @@ cargo build --release
 
 Solve a bundled example with search statistics:
 
-```
+```text
 $ miniplan solve --stats examples/pddl/blocksworld.pddl
 ; cost = 8
 ; length = 8
@@ -94,7 +94,7 @@ miniplan check examples/pddl/gripper.pddl
 
 List available planners and heuristics:
 
-```
+```text
 $ miniplan list-planners
 Available planners:
   bfs          Breadth-first search
@@ -149,7 +149,7 @@ Available heuristics:
 
 ## Library Usage
 
-```rust
+```rust,no_run
 use std::path::PathBuf;
 
 use miniplan::pddl_io::load_files_named;
@@ -190,6 +190,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SearchOutcome::LimitReached(_) => {
             eprintln!("Search limit reached.");
         }
+        // SearchOutcome is #[non_exhaustive].
+        _ => eprintln!("Unknown search outcome."),
     }
 
     Ok(())
@@ -245,7 +247,7 @@ A [pre-commit](https://pre-commit.com/) configuration is included (`.pre-commit-
 
 ## Project Layout
 
-```
+```text
 crates/miniplan/         Core library
   src/
     ground/              PDDL grounding

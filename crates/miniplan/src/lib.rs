@@ -80,4 +80,12 @@ pub mod plan;
 pub mod search;
 pub mod task;
 
+/// Doctests for the code examples in the workspace README (not part of the API).
+///
+/// Only compiled for doctests, so the README outside the crate directory never has to be
+/// packaged.
+#[cfg(doctest)]
+#[doc = include_str!("../../../README.md")]
+mod readme_doctests {}
+
 mod util;
