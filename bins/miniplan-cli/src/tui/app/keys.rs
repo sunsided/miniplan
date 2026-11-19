@@ -3,20 +3,6 @@
 use super::{App, AppFocus, InputField};
 use crate::tui::events::AppEvent;
 
-/// Removes the byte at `len - 1` of `buf`; does nothing when `buf` is empty.
-///
-/// Byte-based on purpose, to keep the TUI's existing Delete behaviour unchanged.
-///
-/// # Panics
-///
-/// Panics when the last character is multi-byte, because `len - 1` is then not a char
-/// boundary. This is a known, pre-existing bug; [`String::pop`] would fix it.
-fn remove_last_byte(buf: &mut String) {
-    if !buf.is_empty() {
-        buf.remove(buf.len() - 1);
-    }
-}
-
 impl App {
     /// Handles a key event that the event loop did not consume itself.
     ///
@@ -98,7 +84,9 @@ impl App {
             AppEvent::Tab => self.focus = field.next_focus(),
             AppEvent::BackTab => self.focus = field.previous_focus(),
             AppEvent::Char(c) => self.on_input_char(field, c),
-            AppEvent::Delete if editing => remove_last_byte(self.input_mut(field)),
+            AppEvent::Delete if editing => {
+                self.input_mut(field).pop();
+            }
             _ => {}
         }
     }
@@ -167,5 +155,27 @@ impl App {
             AppEvent::Char('c') => self.clear_output(),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: Delete removed the last byte and panicked on a multi-byte character.
+    #[test]
+    fn delete_removes_last_multibyte_char() {
+        let mut app = App::new(miniplan::pddl_io::PddlBundle {
+            domains: Vec::new(),
+            problems: Vec::new(),
+        });
+        let field = InputField::Timeout;
+        app.focus = AppFocus::InputField(field);
+        app.editing_input = Some(field);
+        *app.input_mut(field) = "5é".to_owned();
+
+        app.on_key(AppEvent::Delete);
+
+        assert_eq!(app.input_mut(field), "5");
     }
 }
