@@ -29,5 +29,9 @@ tempfile.workspace = true
 name = "search"
 harness = false
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--html-in-header", "docs/mermaid.html"]
+
 [lints]
 workspace = true

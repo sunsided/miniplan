@@ -27,4 +27,7 @@ applyTo: "**/Cargo.toml,Cargo.lock,deny.toml,REUSE.toml,release-plz.toml,.github
 - Changelog groups and minor bumps come from imperative subject verbs (`release-plz.toml`).
   A subject that hides a feature behind "Update ..." lands under Changed. Flag it.
 - License texts in `LICENSES/` come from `reuse download`. Each crate links to it
-  (`crates/*/LICENSES`), so `cargo package --list` must show them.
+  (`crates/*/LICENSES`, `bins/*/LICENSES`), so `cargo package --list` must show them.
+- The library packages `docs/mermaid.html` as a symlink to the root copy, which docs.rs passes
+  to rustdoc through `[package.metadata.docs.rs]`. `cargo package --list -p miniplan` must
+  show it.
