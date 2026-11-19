@@ -3,6 +3,7 @@
 extend-exclude = [
   "*.lock",
   "fuzz/corpus/**",
+  "fuzz/seeds/**",
   "fuzz/artifacts/**",
   "**/proptest-regressions/**",
   "LICENSES/**",

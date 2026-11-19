@@ -22,13 +22,16 @@ tasks:
     cmds:
       - cargo +nightly fuzz build
 
+  # corpus/<target> (generated, ignored) is the writable corpus; seeds/<target> (tracked,
+  # hand-written) is read as extra input.
   run:
     desc: "Fuzz one target: task fuzz:run TARGET=name -- <libFuzzer flags>"
     preconditions: *nightly
     requires:
       vars: [TARGET]
     cmds:
-      - cargo +nightly fuzz run {{.TARGET}} -- {{.CLI_ARGS}}
+      - mkdir -p corpus/{{.TARGET}} seeds/{{.TARGET}}
+      - cargo +nightly fuzz run {{.TARGET}} corpus/{{.TARGET}} seeds/{{.TARGET}} -- {{.CLI_ARGS}}
 
   smoke:
     desc: Run every fuzz target for MAX_TIME seconds (default 10)
@@ -37,7 +40,8 @@ tasks:
       - |
         set -e
         for target in $(cargo +nightly fuzz list); do
-          cargo +nightly fuzz run "$target" -- -max_total_time={{.MAX_TIME}}
+          mkdir -p "corpus/$target" "seeds/$target"
+          cargo +nightly fuzz run "$target" "corpus/$target" "seeds/$target" -- -max_total_time={{.MAX_TIME}}
         done
 
   fmt:
@@ -53,12 +57,12 @@ tasks:
       - cargo +nightly clippy --all-targets -- -D warnings
 
   clean:
-    desc: Remove fuzz build output (keeps corpus/ and artifacts/)
+    desc: Remove fuzz build output (keeps corpus/, seeds/ and artifacts/)
     cmds:
       - rm -rf target coverage
 
   clean:artifacts:
     desc: Delete crash artifacts and generated corpora (destructive, asks first)
-    prompt: This deletes fuzz/artifacts and fuzz/corpus, including crash reproducers. Continue?
+    prompt: This deletes fuzz/artifacts and fuzz/corpus (not fuzz/seeds), including crash reproducers. Continue?
     cmds:
       - rm -rf artifacts corpus
