@@ -3,4 +3,6 @@
 mod aind_air_cargo;
 mod briefcase_world;
 mod hanoi_derived;
+mod loading;
 mod plan_validity;
+mod registry;
