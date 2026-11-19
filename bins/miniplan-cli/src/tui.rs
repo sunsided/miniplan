@@ -25,6 +25,8 @@ use miniplan::pddl_io::load_pddl_bundle;
 mod app;
 mod events;
 mod solver;
+#[cfg(test)]
+mod test_support;
 mod view;
 
 use app::{App, SolvingState};
@@ -137,4 +139,142 @@ fn write_solved_plan(app: &mut App) {
         Err(e) => format!("Failed to write plan: {e}"),
     };
     app.set_flash_error(message);
+}
+
+#[cfg(test)]
+mod tests {
+    use crossterm::event::{KeyModifiers, MouseButton};
+
+    use super::*;
+    use crate::plan_writer::OutputFormat;
+    use crate::tui::app::{AppFocus, ModalKind};
+    use crate::tui::test_support::{draw, gripper_app, temp_path, wait_for_solve};
+
+    /// A mouse event of `kind` at `column`, `row` without modifiers.
+    const fn mouse(kind: MouseEventKind, column: u16, row: u16) -> AppEvent {
+        AppEvent::Mouse(MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        })
+    }
+
+    /// An app over gripper-2 whose search has already finished with a plan.
+    fn solved_app() -> App {
+        let mut app = gripper_app();
+        app.on_key(AppEvent::Char('s'));
+        wait_for_solve(&mut app);
+        app
+    }
+
+    /// Ctrl+C and `q` end the loop; ordinary keys keep it running.
+    #[test]
+    fn quit_events_break() {
+        let mut app = gripper_app();
+
+        assert!(handle_event(&mut app, AppEvent::Tick).is_continue());
+        assert!(handle_event(&mut app, AppEvent::Down).is_continue());
+        assert!(handle_event(&mut app, AppEvent::Quit).is_break());
+        assert!(handle_event(&mut app, AppEvent::Char('q')).is_break());
+    }
+
+    /// Escape during a search cancels it: the channel is dropped and the outcome says so.
+    #[test]
+    fn escape_cancels_running_search() {
+        let mut app = gripper_app();
+        app.on_key(AppEvent::Char('s'));
+        assert_eq!(app.solving_state, SolvingState::Running);
+
+        let flow = handle_event(&mut app, AppEvent::Escape);
+
+        assert!(flow.is_continue());
+        assert!(app.rx.is_none());
+        assert_eq!(app.solving_state, SolvingState::Failed);
+        assert!(matches!(app.outcome, Some(Err(ref e)) if e == "cancelled"));
+    }
+
+    /// `r` resets to the domain list, but not while a modal is open.
+    #[test]
+    fn r_resets_outside_modal() {
+        let mut app = solved_app();
+        app.focus = AppFocus::CommandBar;
+
+        assert!(handle_event(&mut app, AppEvent::Char('r')).is_continue());
+        assert_eq!(app.focus, AppFocus::DomainList);
+        assert!(app.solved_plan.is_none());
+
+        app.modal = Some(ModalKind::Heuristic);
+        app.focus = AppFocus::CommandBar;
+        assert!(handle_event(&mut app, AppEvent::Char('r')).is_continue());
+        assert_eq!(app.focus, AppFocus::CommandBar);
+        assert_eq!(app.modal, Some(ModalKind::Heuristic));
+    }
+
+    /// `w` without a plan flashes a notice instead of writing.
+    #[test]
+    fn w_without_plan_flashes() {
+        let mut app = gripper_app();
+
+        assert!(handle_event(&mut app, AppEvent::Char('w')).is_continue());
+
+        assert_eq!(app.flash_error.as_deref(), Some("No plan to write"));
+    }
+
+    /// `w` writes the solved plan to the output path in the chosen format.
+    #[test]
+    fn w_writes_plan_to_file() {
+        let mut app = solved_app();
+        let path = temp_path("w-writes.json");
+        app.output_path = path.to_string_lossy().into_owned();
+        app.output_format = OutputFormat::Json;
+
+        assert!(handle_event(&mut app, AppEvent::Char('w')).is_continue());
+
+        let written = std::fs::read_to_string(&path).expect("plan file written");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            app.flash_error.as_deref(),
+            Some("Plan written successfully")
+        );
+        assert!(written.contains("\"length\": 7"), "{written}");
+    }
+
+    /// A failing write is reported in the flash line.
+    #[test]
+    fn w_reports_write_failure() {
+        let mut app = solved_app();
+        app.output_path = temp_path("no-such-dir")
+            .join("plan.txt")
+            .to_string_lossy()
+            .into_owned();
+
+        assert!(handle_event(&mut app, AppEvent::Char('w')).is_continue());
+
+        let flash = app.flash_error.expect("flash is set");
+        assert!(flash.starts_with("Failed to write plan: "), "{flash}");
+    }
+
+    /// Clicks and wheel events reach the app; pointer moves are dropped.
+    #[test]
+    fn mouse_events_are_forwarded() {
+        let mut app = gripper_app();
+        draw(&mut app, 120, 40);
+        let plan = app.areas.plan.expect("plan area");
+        let (col, row) = (plan.x + 1, plan.y + 1);
+
+        assert!(handle_event(&mut app, mouse(MouseEventKind::Moved, col, row)).is_continue());
+        assert_eq!(app.focus, AppFocus::DomainList);
+
+        let flow = handle_event(
+            &mut app,
+            mouse(MouseEventKind::Down(MouseButton::Left), col, row),
+        );
+        assert!(flow.is_continue());
+        assert_eq!(app.focus, AppFocus::PlanScroll);
+
+        assert!(handle_event(&mut app, mouse(MouseEventKind::ScrollDown, col, row)).is_continue());
+        assert!(handle_event(&mut app, mouse(MouseEventKind::ScrollUp, col, row)).is_continue());
+        assert_eq!(app.plan_scroll_offset, 0);
+    }
 }

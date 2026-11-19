@@ -78,3 +78,69 @@ fn key_to_app_event(key: KeyEvent) -> AppEvent {
         _ => AppEvent::Tick,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A key press of `code` with `modifiers`.
+    const fn press(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
+
+    /// Every mapped key without modifiers becomes its [`AppEvent`].
+    #[test]
+    fn maps_plain_keys() {
+        let cases = [
+            (KeyCode::Char('x'), AppEvent::Char('x')),
+            (KeyCode::Enter, AppEvent::Enter),
+            (KeyCode::Esc, AppEvent::Escape),
+            (KeyCode::Backspace, AppEvent::Back),
+            (KeyCode::Up, AppEvent::Up),
+            (KeyCode::Down, AppEvent::Down),
+            (KeyCode::Left, AppEvent::Left),
+            (KeyCode::Right, AppEvent::Right),
+            (KeyCode::Tab, AppEvent::Tab),
+            (KeyCode::Delete, AppEvent::Delete),
+            (KeyCode::Home, AppEvent::Home),
+            (KeyCode::End, AppEvent::End),
+        ];
+
+        for (code, expected) in cases {
+            let event = key_to_app_event(press(code, KeyModifiers::NONE));
+
+            assert_eq!(event, expected, "{code:?}");
+        }
+    }
+
+    /// Ctrl+C quits, while other Ctrl chords arrive as the bare character.
+    #[test]
+    fn ctrl_c_quits_and_other_ctrl_chars_pass() {
+        assert_eq!(
+            key_to_app_event(press(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            AppEvent::Quit
+        );
+        assert_eq!(
+            key_to_app_event(press(KeyCode::Char('x'), KeyModifiers::CONTROL)),
+            AppEvent::Char('x')
+        );
+    }
+
+    /// Shift+Tab becomes [`AppEvent::BackTab`].
+    #[test]
+    fn shift_tab_is_back_tab() {
+        assert_eq!(
+            key_to_app_event(press(KeyCode::Tab, KeyModifiers::SHIFT)),
+            AppEvent::BackTab
+        );
+    }
+
+    /// Keys the TUI does not use become [`AppEvent::Tick`].
+    #[test]
+    fn unmapped_keys_tick() {
+        assert_eq!(
+            key_to_app_event(press(KeyCode::F(5), KeyModifiers::NONE)),
+            AppEvent::Tick
+        );
+    }
+}

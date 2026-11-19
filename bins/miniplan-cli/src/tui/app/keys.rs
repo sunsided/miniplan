@@ -160,7 +160,337 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use miniplan::plan::{Plan, PlanStep};
+    use miniplan::search::{SearchOutcome, SearchStats};
+    use miniplan::task::OpId;
+
+    use super::super::tests::select_planner;
+    use super::super::{ModalKind, SolvingState};
     use super::*;
+    use crate::tui::test_support::{bundle, gripper_app, wait_for_solve};
+
+    /// Sends every event of `events` to `app` in order.
+    fn press_all(app: &mut App, events: &[AppEvent]) {
+        for &event in events {
+            app.on_key(event);
+        }
+    }
+
+    /// A plan of `len` dummy steps, enough to make the plan panel scrollable.
+    fn plan_of(len: usize) -> Plan {
+        Plan {
+            steps: (0..len)
+                .map(|i| PlanStep {
+                    op_id: OpId(i),
+                    op_name: format!("step-{i}"),
+                })
+                .collect(),
+            cost: 0.0,
+        }
+    }
+
+    /// Tab visits every widget in the documented order and wraps back to the domain list.
+    #[test]
+    fn tab_cycles_focus_forward() {
+        let mut app = gripper_app();
+        let expected = [
+            AppFocus::ProblemList,
+            AppFocus::InputField(InputField::Timeout),
+            AppFocus::InputField(InputField::MaxNodes),
+            AppFocus::InputField(InputField::OutputPath),
+            AppFocus::SolveButton,
+            AppFocus::CommandBar,
+            AppFocus::DomainList,
+        ];
+
+        for focus in expected {
+            app.on_key(AppEvent::Tab);
+
+            assert_eq!(app.focus, focus);
+        }
+    }
+
+    /// Shift+Tab walks back from the command bar through the plan panel to the domain list.
+    #[test]
+    fn back_tab_cycles_focus_backward() {
+        let mut app = gripper_app();
+        app.focus = AppFocus::CommandBar;
+        let expected = [
+            AppFocus::PlanScroll,
+            AppFocus::InputField(InputField::OutputPath),
+            AppFocus::InputField(InputField::MaxNodes),
+            AppFocus::InputField(InputField::Timeout),
+            AppFocus::ProblemList,
+            AppFocus::DomainList,
+        ];
+
+        for focus in expected {
+            app.on_key(AppEvent::BackTab);
+
+            assert_eq!(app.focus, focus);
+        }
+
+        app.focus = AppFocus::SolveButton;
+        app.on_key(AppEvent::BackTab);
+        assert_eq!(app.focus, AppFocus::InputField(InputField::OutputPath));
+        app.focus = AppFocus::PlanScroll;
+        app.on_key(AppEvent::Tab);
+        assert_eq!(app.focus, AppFocus::CommandBar);
+    }
+
+    /// Moving through the domain list refills the problem list with that domain's problems.
+    #[test]
+    fn domain_selection_rebuilds_problems() {
+        let mut app = App::new(bundle(&["gripper-small.pddl", "air-cargo.pddl"]));
+
+        app.on_key(AppEvent::Down);
+        assert_eq!(app.problem_state.items, [1, 2, 3]);
+
+        app.on_key(AppEvent::Char('k'));
+        assert_eq!(app.problem_state.items, [0]);
+
+        app.on_key(AppEvent::Char('k'));
+        assert_eq!(app.problem_state.items, [1, 2, 3], "selection wraps");
+
+        app.on_key(AppEvent::Char('j'));
+        assert_eq!(app.problem_state.items, [0]);
+    }
+
+    /// Tab cannot leave the domain list while no problem matches the selected domain.
+    #[test]
+    fn tab_from_blocked_domain_stays() {
+        let mut bundle = bundle(&["gripper-small.pddl"]);
+        bundle.problems.clear();
+        let mut app = App::new(bundle);
+
+        app.on_key(AppEvent::Tab);
+
+        assert_eq!(app.focus, AppFocus::DomainList);
+    }
+
+    /// The problem list moves its selection with arrows and `j`/`k`, wrapping at the ends.
+    #[test]
+    fn problem_selection_moves() {
+        let mut app = App::new(bundle(&["air-cargo.pddl"]));
+        app.focus = AppFocus::ProblemList;
+
+        app.on_key(AppEvent::Down);
+        assert_eq!(app.problem_state.selected(), Some(&1));
+        app.on_key(AppEvent::Char('j'));
+        assert_eq!(app.problem_state.selected(), Some(&2));
+        app.on_key(AppEvent::Char('j'));
+        assert_eq!(app.problem_state.selected(), Some(&0));
+        app.on_key(AppEvent::Up);
+        assert_eq!(app.problem_state.selected(), Some(&2));
+        app.on_key(AppEvent::Char('k'));
+        assert_eq!(app.problem_state.selected(), Some(&1));
+    }
+
+    /// Enter starts editing, Delete erases, typing appends and Enter again stops editing.
+    #[test]
+    fn timeout_field_edits() {
+        let mut app = gripper_app();
+        app.focus = AppFocus::InputField(InputField::Timeout);
+
+        app.on_key(AppEvent::Delete);
+        assert_eq!(
+            app.timeout_input, "300s",
+            "Delete outside edit mode does nothing"
+        );
+
+        app.on_key(AppEvent::Enter);
+        assert_eq!(app.editing_input, Some(InputField::Timeout));
+        press_all(&mut app, &[AppEvent::Delete; 5]);
+        press_all(&mut app, &[AppEvent::Char('5'), AppEvent::Char('s')]);
+        app.on_key(AppEvent::Enter);
+
+        assert_eq!(app.timeout_input, "5s");
+        assert_eq!(app.editing_input, None);
+        assert_eq!(app.solving_state, SolvingState::Idle, "typed `s` is text");
+    }
+
+    /// Typing into a field that is not in edit mode enters edit mode with that character.
+    #[test]
+    fn typing_starts_editing_max_nodes() {
+        let mut app = gripper_app();
+        app.focus = AppFocus::InputField(InputField::MaxNodes);
+
+        press_all(&mut app, &[AppEvent::Char('4'), AppEvent::Char('2')]);
+
+        assert_eq!(app.editing_input, Some(InputField::MaxNodes));
+        assert_eq!(app.max_nodes_input, "42");
+    }
+
+    /// While editing, `q` is text; outside edit mode it asks the loop to quit.
+    #[test]
+    fn q_in_field_types_or_quits() {
+        let mut app = gripper_app();
+        app.focus = AppFocus::InputField(InputField::OutputPath);
+        app.editing_input = Some(InputField::OutputPath);
+
+        app.on_key(AppEvent::Char('q'));
+        assert_eq!(app.output_path, "-q");
+        assert!(app.outcome.is_none());
+
+        app.editing_input = None;
+        app.on_key(AppEvent::Char('q'));
+        assert!(matches!(app.outcome, Some(Err(ref e)) if e == "quit"));
+    }
+
+    /// `s` in a field outside edit mode starts a search instead of typing.
+    #[test]
+    fn s_in_field_solves() {
+        let mut app = gripper_app();
+        app.focus = AppFocus::InputField(InputField::Timeout);
+
+        app.on_key(AppEvent::Char('s'));
+
+        assert_eq!(app.solving_state, SolvingState::Running);
+        assert_eq!(app.timeout_input, "300s");
+        wait_for_solve(&mut app);
+    }
+
+    /// `q` on a list asks the loop to quit.
+    #[test]
+    fn q_on_list_quits() {
+        let mut app = gripper_app();
+
+        app.on_key(AppEvent::Char('q'));
+
+        assert!(matches!(app.outcome, Some(Err(ref e)) if e == "quit"));
+    }
+
+    /// Enter on the solve button starts a search that completes with a plan.
+    #[test]
+    fn enter_on_solve_button_solves() {
+        let mut app = gripper_app();
+        app.focus = AppFocus::SolveButton;
+
+        app.on_key(AppEvent::Enter);
+        wait_for_solve(&mut app);
+
+        assert_eq!(app.solving_state, SolvingState::Completed);
+        assert!(app.solved_plan.is_some());
+    }
+
+    /// The modal selection wraps with arrows and `j`/`k`; Enter applies it and closes.
+    #[test]
+    fn planner_modal_navigates_and_applies() {
+        let mut app = gripper_app();
+        let start = app.selected_planner;
+        let len = app.planners.len();
+        app.open_planner_modal();
+
+        app.on_key(AppEvent::Down);
+        app.on_key(AppEvent::Char('j'));
+        app.on_key(AppEvent::Char('k'));
+        assert_eq!(app.modal_list_state.selected(), Some((start + 1) % len));
+        app.on_key(AppEvent::Tab);
+        assert_eq!(
+            app.modal,
+            Some(ModalKind::Planner),
+            "other keys are swallowed"
+        );
+        app.on_key(AppEvent::Enter);
+
+        assert_eq!(app.modal, None);
+        assert_eq!(app.selected_planner, (start + 1) % len);
+    }
+
+    /// Up from the first modal entry wraps to the last; selecting a blind planner disables
+    /// the heuristic.
+    #[test]
+    fn planner_modal_wraps_to_blind_planner() {
+        let mut app = gripper_app();
+        select_planner(&mut app, "bfs");
+        let bfs = app.selected_planner;
+        app.selected_planner = 0;
+        app.open_planner_modal();
+        let len = app.planners.len();
+
+        app.on_key(AppEvent::Up);
+        assert_eq!(app.modal_list_state.selected(), Some(len - 1));
+        app.modal_list_state.select(Some(bfs));
+        app.on_key(AppEvent::Enter);
+
+        assert_eq!(app.planners[app.selected_planner].name, "bfs");
+        assert!(!app.heuristic_enabled);
+    }
+
+    /// Escape closes the heuristic modal without applying its selection.
+    #[test]
+    fn heuristic_modal_escape_discards() {
+        let mut app = gripper_app();
+        app.open_heuristic_modal();
+
+        app.on_key(AppEvent::Down);
+        app.on_key(AppEvent::Escape);
+
+        assert_eq!(app.modal, None);
+        assert_eq!(app.selected_heuristic, 0);
+    }
+
+    /// Enter in the heuristic modal applies the selected heuristic.
+    #[test]
+    fn heuristic_modal_applies() {
+        let mut app = gripper_app();
+        app.open_heuristic_modal();
+
+        press_all(&mut app, &[AppEvent::Down, AppEvent::Down, AppEvent::Enter]);
+
+        assert_eq!(app.heuristics[app.selected_heuristic].name, "hmax");
+    }
+
+    /// The plan panel scrolls within its lines and stops at both ends.
+    #[test]
+    fn plan_scroll_is_bounded() {
+        let mut app = gripper_app();
+        app.focus = AppFocus::PlanScroll;
+        app.solved_plan = Some(plan_of(3));
+
+        app.on_key(AppEvent::Up);
+        assert_eq!(app.plan_scroll_offset, 0);
+        press_all(&mut app, &[AppEvent::Down; 10]);
+        assert_eq!(
+            app.plan_scroll_offset, 4,
+            "header, blank line and three steps"
+        );
+        app.on_key(AppEvent::Char('k'));
+        assert_eq!(app.plan_scroll_offset, 3);
+        app.on_key(AppEvent::Char('j'));
+        assert_eq!(app.plan_scroll_offset, 4);
+    }
+
+    /// Without a plan the plan panel has one line and cannot scroll.
+    #[test]
+    fn plan_scroll_without_plan_stays() {
+        let mut app = gripper_app();
+        app.focus = AppFocus::PlanScroll;
+
+        app.on_key(AppEvent::Down);
+
+        assert_eq!(app.plan_scroll_offset, 0);
+    }
+
+    /// `c` on the command bar clears the result but keeps the settings.
+    #[test]
+    fn command_bar_clears_output() {
+        let mut app = gripper_app();
+        app.focus = AppFocus::CommandBar;
+        app.solved_plan = Some(plan_of(2));
+        app.outcome = Some(Ok(SearchOutcome::Unsolvable(SearchStats::default())));
+        app.solving_state = SolvingState::Completed;
+        app.error = Some("old".to_owned());
+        app.plan_scroll_offset = 1;
+        app.max_nodes_input = "9".to_owned();
+
+        app.on_key(AppEvent::Char('c'));
+
+        assert!(app.solved_plan.is_none() && app.outcome.is_none() && app.error.is_none());
+        assert_eq!(app.solving_state, SolvingState::Idle);
+        assert_eq!(app.plan_scroll_offset, 0);
+        assert_eq!(app.max_nodes_input, "9");
+    }
 
     /// Regression: Delete removed the last byte and panicked on a multi-byte character.
     #[test]

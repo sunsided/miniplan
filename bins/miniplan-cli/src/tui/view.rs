@@ -615,3 +615,319 @@ fn modal_rect(area: Rect, entries: usize) -> Rect {
         height: modal_height,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use miniplan::search::SearchStats;
+
+    use super::*;
+    use crate::tui::events::AppEvent;
+    use crate::tui::test_support::{bundle, draw, gripper_app, wait_for_solve};
+
+    /// Asserts that `screen` contains every string of `needles`, printing the screen if not.
+    fn assert_shows(screen: &str, needles: &[&str]) {
+        for needle in needles {
+            assert!(screen.contains(needle), "missing {needle:?} in:\n{screen}");
+        }
+    }
+
+    /// The text of the problem panel's inside rows in `screen`, as recorded in `app`.
+    fn problem_panel_text(app: &App, screen: &str) -> String {
+        let rect = app.areas.problem.expect("problem area recorded");
+        screen
+            .lines()
+            .skip(usize::from(rect.y))
+            .take(usize::from(rect.height))
+            .map(|line| {
+                line.chars()
+                    .skip(usize::from(rect.x))
+                    .take(usize::from(rect.width))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The first frame shows every panel title, the selection and the default settings.
+    #[test]
+    fn initial_frame_shows_panels_and_defaults() {
+        let mut app = gripper_app();
+
+        let screen = draw(&mut app, 120, 40);
+
+        assert_shows(
+            &screen,
+            &[
+                " Domain ",
+                "gripper (1 problem)",
+                " Problem ",
+                "gripper-2",
+                " Solver Settings ",
+                "Planner: astar",
+                "Heuristic: hff",
+                "Timeout: 300s",
+                "Max Nodes:",
+                "Output: -",
+                "[ Solve ]",
+                " Statistics ",
+                "Ready to solve",
+                " Plan ",
+                "No plan yet",
+                " Commands ",
+                "[s] Solve",
+                "[q] Quit",
+            ],
+        );
+        assert!(!screen.contains("[w] Write Plan"));
+    }
+
+    /// A small terminal still renders the panels without panicking.
+    #[test]
+    fn small_frame_renders() {
+        let mut app = gripper_app();
+
+        let screen = draw(&mut app, 60, 20);
+
+        assert_shows(&screen, &[" Domain ", "gripper", " Commands ", "[s] Solve"]);
+    }
+
+    /// Rendering records every panel area, and the selector rows sit inside the settings panel.
+    #[test]
+    fn render_records_hit_areas() {
+        let mut app = gripper_app();
+
+        draw(&mut app, 120, 40);
+
+        let areas = &app.areas;
+        let domain = areas.domain.expect("domain area");
+        let problem = areas.problem.expect("problem area");
+        let config = areas.config.expect("config area");
+        let plan = areas.plan.expect("plan area");
+        let button = areas.solve_button.expect("solve button area");
+        assert_eq!((domain.y, domain.height), (0, 8));
+        assert_eq!(problem.x, domain.x + domain.width);
+        assert_eq!(areas.config_planner_row, config.y + 1);
+        assert_eq!(areas.config_heuristic_row, config.y + 2);
+        assert!(config.contains(button.as_position()));
+        assert!(plan.x >= config.x + config.width);
+        assert_eq!(areas.modal, None);
+    }
+
+    /// The problem panel lists only the problems of the selected domain.
+    #[test]
+    fn problem_panel_follows_domain_selection() {
+        let mut app = App::new(bundle(&["gripper-small.pddl", "air-cargo.pddl"]));
+
+        let screen = draw(&mut app, 120, 40);
+        let panel = problem_panel_text(&app, &screen);
+        assert!(panel.contains("gripper-2") && !panel.contains("air-cargo-p1"));
+        assert_shows(&screen, &["air-cargo (3 problems)"]);
+
+        app.on_key(AppEvent::Down);
+        let screen = draw(&mut app, 120, 40);
+        let panel = problem_panel_text(&app, &screen);
+        assert!(panel.contains("air-cargo-p3") && !panel.contains("gripper-2"));
+    }
+
+    /// A domain without problems is dimmed, the problem panel is blocked and so is solving.
+    #[test]
+    fn blocked_frame() {
+        let mut bundle = bundle(&["gripper-small.pddl"]);
+        bundle.problems.clear();
+        let mut app = App::new(bundle);
+
+        let screen = draw(&mut app, 120, 40);
+
+        assert_shows(
+            &screen,
+            &[
+                "gripper (0 problems)",
+                " Problem (blocked) ",
+                "No problems match the selected domain.",
+                "[ Solve (blocked) ]",
+            ],
+        );
+    }
+
+    /// A domain defined twice is shown once with a `*`.
+    #[test]
+    fn duplicated_domain_is_starred() {
+        let mut app = App::new(bundle(&["gripper-small.pddl", "gripper.pddl"]));
+
+        let screen = draw(&mut app, 120, 40);
+
+        assert_shows(
+            &screen,
+            &["gripper* (2 problems)", "gripper-2", "gripper-4"],
+        );
+    }
+
+    /// The planner modal lists every planner with its description and records its area.
+    #[test]
+    fn planner_modal_frame() {
+        let mut app = gripper_app();
+        app.modal = Some(ModalKind::Planner);
+
+        let screen = draw(&mut app, 120, 40);
+
+        assert_shows(
+            &screen,
+            &[" Select Planner ", "bfs — ", "astar — ", "gbfs — "],
+        );
+        let modal = app.areas.modal.expect("modal area recorded");
+        assert_eq!(usize::from(modal.height), app.planners.len() + 2);
+    }
+
+    /// The heuristic modal lists the heuristics and fits a small terminal.
+    #[test]
+    fn heuristic_modal_frame() {
+        let mut app = gripper_app();
+        app.modal = Some(ModalKind::Heuristic);
+
+        let screen = draw(&mut app, 60, 20);
+
+        assert_shows(&screen, &[" Select Heuristic ", "hff — ", "blind — "]);
+        let modal = app.areas.modal.expect("modal area recorded");
+        assert!(modal.width <= 56 && modal.height <= 16);
+    }
+
+    /// A blind planner hides the heuristic row.
+    #[test]
+    fn blind_planner_hides_heuristic() {
+        let mut app = gripper_app();
+        app.selected_planner = app
+            .planners
+            .iter()
+            .position(|p| p.name == "bfs")
+            .expect("bfs is registered");
+        app.heuristic_enabled = false;
+
+        let screen = draw(&mut app, 120, 40);
+
+        assert_shows(&screen, &["Planner: bfs"]);
+        assert!(!screen.contains("Heuristic:"));
+    }
+
+    /// The edited field shows the edit marker and a cursor; a focused field shows its hint.
+    #[test]
+    fn input_field_markers() {
+        let mut app = gripper_app();
+        app.focus = AppFocus::InputField(InputField::Timeout);
+
+        let screen = draw(&mut app, 120, 40);
+        assert_shows(&screen, &["Timeout: [Enter] 300s"]);
+
+        app.editing_input = Some(InputField::Timeout);
+        let screen = draw(&mut app, 120, 40);
+        assert_shows(&screen, &["Timeout: (editing) 300s█"]);
+    }
+
+    /// While a search runs, the statistics, plan, button and command bar say so.
+    #[test]
+    fn solving_frame() {
+        let mut app = gripper_app();
+        app.on_key(AppEvent::Char('s'));
+
+        let screen = draw(&mut app, 120, 40);
+
+        assert_shows(&screen, &["Solving...", "[Esc] Cancel"]);
+        assert!(!screen.contains("[s] Solve"));
+        wait_for_solve(&mut app);
+    }
+
+    /// After a successful search the statistics, numbered steps and write hint are shown.
+    #[test]
+    fn solved_frame_shows_plan() {
+        let mut app = gripper_app();
+        app.on_key(AppEvent::Char('s'));
+        wait_for_solve(&mut app);
+
+        let screen = draw(&mut app, 120, 40);
+
+        assert_shows(
+            &screen,
+            &[
+                "Plan found!",
+                "Cost: 7.00  Length: 7",
+                "Expanded: ",
+                "7 steps",
+                "[w] Write Plan",
+                "[c] Clear",
+                "[r] Restart",
+            ],
+        );
+        let plan = app.solved_plan.as_ref().expect("plan kept");
+        for (i, step) in plan.steps.iter().enumerate() {
+            assert_shows(&screen, &[&format!("  {}. {}", i + 1, step.op_name)]);
+        }
+    }
+
+    /// A plan longer than the panel gets a scroll hint, and scrolling moves its position.
+    #[test]
+    fn long_plan_shows_scroll_hint() {
+        let mut app = gripper_app();
+        app.on_key(AppEvent::Char('s'));
+        wait_for_solve(&mut app);
+
+        let screen = draw(&mut app, 120, 24);
+        assert_shows(&screen, &["(scroll: ↑/↓ or mouse, 1/9)"]);
+
+        app.plan_scroll_offset = 2;
+        let screen = draw(&mut app, 120, 24);
+        assert_shows(&screen, &["(scroll: ↑/↓ or mouse, 3/9)"]);
+        draw(&mut app, 60, 20);
+    }
+
+    /// A failed search shows the error in the statistics and a failure note in the plan.
+    #[test]
+    fn failed_frame_shows_error() {
+        let mut app = gripper_app();
+        app.solving_state = SolvingState::Failed;
+        app.outcome = Some(Err("cancelled".to_owned()));
+
+        let screen = draw(&mut app, 120, 40);
+
+        assert_shows(
+            &screen,
+            &["Error", "cancelled", "Solving failed.", "[c] Clear"],
+        );
+    }
+
+    /// Unsolvable and limit outcomes get their own headline; no outcome gets a placeholder.
+    #[test]
+    fn non_plan_outcomes() {
+        let mut app = gripper_app();
+        app.solving_state = SolvingState::Completed;
+        let cases = [
+            (
+                Some(Ok(SearchOutcome::Unsolvable(SearchStats::default()))),
+                "Unsolvable",
+            ),
+            (
+                Some(Ok(SearchOutcome::LimitReached(SearchStats::default()))),
+                "Limit reached",
+            ),
+            (None, "No stats available"),
+        ];
+
+        for (outcome, headline) in cases {
+            app.outcome = outcome;
+
+            let screen = draw(&mut app, 120, 40);
+
+            assert_shows(&screen, &[headline]);
+        }
+    }
+
+    /// The flash message is drawn over the middle of the screen.
+    #[test]
+    fn flash_message_is_drawn() {
+        let mut app = gripper_app();
+        app.set_flash_error("Invalid timeout: bad".to_owned());
+
+        let screen = draw(&mut app, 120, 40);
+
+        let middle = screen.lines().nth(20).expect("row 20 exists");
+        assert!(middle.contains("Invalid timeout: bad"), "{middle}");
+    }
+}

@@ -663,3 +663,278 @@ fn dedupe_domains(bundle: &PddlBundle) -> (Vec<usize>, HashSet<String>) {
 
     (indices, duplicated)
 }
+
+#[cfg(test)]
+mod tests {
+    use miniplan::search::SearchStats;
+
+    use super::*;
+    use crate::tui::events::AppEvent;
+    use crate::tui::test_support::{bundle, gripper_app, wait_for_solve};
+
+    /// Name of the problem selected in `app`'s problem list.
+    fn selected_problem(app: &App) -> String {
+        let &idx = app.problem_state.selected().expect("a problem is selected");
+        app.bundle.problems[idx].1.name().to_string()
+    }
+
+    /// Selects the planner named `name` in `app` the way closing the modal does.
+    pub(super) fn select_planner(app: &mut App, name: &str) {
+        app.selected_planner = app
+            .planners
+            .iter()
+            .position(|p| p.name == name)
+            .expect("planner is registered");
+        app.update_heuristic_enabled();
+    }
+
+    /// A new app selects the first domain, lists only its problems and defaults to A*/hFF.
+    #[test]
+    fn new_selects_first_domain_and_defaults() {
+        let app = App::new(bundle(&["gripper-small.pddl", "air-cargo.pddl"]));
+
+        assert_eq!(app.domain_state.items.len(), 2);
+        assert_eq!(app.compatible_problem_indices, [0]);
+        assert_eq!(selected_problem(&app), "gripper-2");
+        assert!(!app.problem_blocked);
+        assert_eq!(app.planners[app.selected_planner].name, "astar");
+        assert_eq!(app.heuristics[app.selected_heuristic].name, "hff");
+        assert_eq!(app.timeout_input, "300s");
+        assert_eq!(app.output_path, "-");
+        assert!(app.heuristic_enabled);
+        assert!(app.can_solve());
+    }
+
+    /// A domain defined in two files is listed once, marked duplicated, and gets both problems.
+    #[test]
+    fn duplicated_domain_is_listed_once() {
+        let app = App::new(bundle(&["gripper-small.pddl", "gripper.pddl"]));
+
+        assert_eq!(app.domain_state.items, [0]);
+        assert!(app.duplicated_domains.contains("gripper"));
+        assert_eq!(app.problem_count_for_domain("gripper"), 2);
+        assert_eq!(app.problem_state.items.len(), 2);
+    }
+
+    /// Without any problem the problem list is blocked and solving is refused with a flash.
+    #[test]
+    fn no_problems_blocks_solving() {
+        let mut bundle = bundle(&["gripper-small.pddl"]);
+        bundle.problems.clear();
+        let mut app = App::new(bundle);
+
+        app.start_solving();
+
+        assert!(app.problem_blocked);
+        assert!(!app.can_solve());
+        assert_eq!(app.solving_state, SolvingState::Idle);
+        assert_eq!(
+            app.flash_error.as_deref(),
+            Some("No problem selected or domain has no problems")
+        );
+    }
+
+    /// An empty bundle has no selection at all and cannot solve.
+    #[test]
+    fn empty_bundle_has_no_selection() {
+        let app = App::new(PddlBundle {
+            domains: Vec::new(),
+            problems: Vec::new(),
+        });
+
+        assert!(app.domain_state.selected().is_none());
+        assert!(app.problem_blocked);
+        assert!(!app.can_solve());
+    }
+
+    /// The list selection wraps at both ends, and moving in an empty list does nothing.
+    #[test]
+    fn stateful_list_wraps() {
+        let mut list = StatefulList::with_items(vec!['a', 'b', 'c']);
+
+        list.previous();
+        assert_eq!(list.selected(), Some(&'c'));
+        list.next();
+        assert_eq!(list.selected(), Some(&'a'));
+        list.next();
+        assert_eq!(list.selected(), Some(&'b'));
+
+        let mut empty: StatefulList<char> = StatefulList::with_items(Vec::new());
+        empty.next();
+        empty.previous();
+        assert_eq!(empty.selected(), None);
+    }
+
+    /// A flash message survives a tick while fresh and disappears once it is older than
+    /// [`FLASH_DURATION`].
+    #[test]
+    fn tick_expires_flash() {
+        let mut app = gripper_app();
+        app.set_flash_error("hello".to_owned());
+
+        app.tick();
+        assert_eq!(app.flash_error.as_deref(), Some("hello"));
+
+        app.flash_error_time = Instant::now().checked_sub(FLASH_DURATION * 2);
+        app.tick();
+        assert_eq!(app.flash_error, None);
+        assert_eq!(app.flash_error_time, None);
+    }
+
+    /// Pressing `s` on the domain list solves gripper-2 in the background and keeps the plan.
+    #[test]
+    fn solve_finds_plan() {
+        let mut app = gripper_app();
+        app.plan_scroll_offset = 3;
+
+        app.on_key(AppEvent::Char('s'));
+        assert_eq!(app.solving_state, SolvingState::Running);
+        assert_eq!(app.plan_scroll_offset, 0);
+        assert!(!app.can_solve());
+        wait_for_solve(&mut app);
+
+        assert_eq!(app.solving_state, SolvingState::Completed);
+        assert_eq!(app.solved_plan.as_ref().map(Plan::len), Some(7));
+        assert!(matches!(app.outcome, Some(Ok(SearchOutcome::Plan(..)))));
+    }
+
+    /// A node budget of one completes with "limit reached" and no plan.
+    #[test]
+    fn solve_with_node_budget_reaches_limit() {
+        let mut app = gripper_app();
+        app.max_nodes_input = "1".to_owned();
+        app.timeout_input.clear();
+
+        app.start_solving();
+        wait_for_solve(&mut app);
+
+        assert_eq!(app.solving_state, SolvingState::Completed);
+        assert!(app.solved_plan.is_none());
+        assert!(matches!(
+            app.outcome,
+            Some(Ok(SearchOutcome::LimitReached(_)))
+        ));
+    }
+
+    /// An unparsable timeout is reported in the flash line and no search starts.
+    #[test]
+    fn invalid_timeout_flashes() {
+        let mut app = gripper_app();
+        app.timeout_input = "soon".to_owned();
+
+        app.start_solving();
+
+        assert_eq!(app.solving_state, SolvingState::Idle);
+        assert!(app.rx.is_none());
+        let flash = app.flash_error.expect("flash is set");
+        assert!(flash.starts_with("Invalid timeout: "), "{flash}");
+    }
+
+    /// An unparsable node budget is reported in the flash line and no search starts.
+    #[test]
+    fn invalid_max_nodes_flashes() {
+        let mut app = gripper_app();
+        app.max_nodes_input = "-5".to_owned();
+
+        app.start_solving();
+
+        assert_eq!(app.solving_state, SolvingState::Idle);
+        let flash = app.flash_error.expect("flash is set");
+        assert!(flash.starts_with("Invalid max nodes: "), "{flash}");
+    }
+
+    /// Empty limit fields mean "no limit"; set fields are parsed into the limits.
+    #[test]
+    fn search_limits_parse_fields() {
+        let mut app = gripper_app();
+        app.timeout_input.clear();
+        let unlimited = app.search_limits().expect("empty fields are valid");
+        assert_eq!(unlimited.time_budget, None);
+        assert_eq!(unlimited.node_budget, None);
+
+        app.timeout_input = "2m".to_owned();
+        app.max_nodes_input = "1000".to_owned();
+        let limited = app.search_limits().expect("fields are valid");
+        assert_eq!(limited.time_budget, Some(Duration::from_secs(120)));
+        assert_eq!(limited.node_budget, Some(1000));
+    }
+
+    /// Heuristic planners get the selected heuristic; blind planners get none.
+    #[test]
+    fn planner_choice_follows_heuristic_toggle() {
+        let mut app = gripper_app();
+        app.selected_heuristic = 1;
+        let astar = app.planner_choice().expect("astar is valid");
+        assert_eq!(astar.kind, PlannerKind::Astar);
+        assert_eq!(astar.heuristic.as_deref(), Some("hadd"));
+        assert_eq!(
+            astar.config.opts.get("heuristic").map(String::as_str),
+            Some("hadd")
+        );
+
+        select_planner(&mut app, "bfs");
+        let bfs = app.planner_choice().expect("bfs is valid");
+        assert!(!app.heuristic_enabled);
+        assert_eq!(bfs.heuristic, None);
+        assert!(bfs.config.opts.is_empty());
+    }
+
+    /// A planner entry that is not a known planner kind is reported in [`App::error`].
+    #[test]
+    fn unknown_planner_sets_error() {
+        let mut app = gripper_app();
+        app.planners[app.selected_planner].name = "nope".to_owned();
+
+        app.start_solving();
+
+        assert_eq!(app.solving_state, SolvingState::Idle);
+        let error = app.error.expect("error is set");
+        assert!(error.starts_with("Invalid planner: "), "{error}");
+    }
+
+    /// A failed search ends in [`SolvingState::Failed`] and keeps the message.
+    #[test]
+    fn finish_solving_with_error_fails() {
+        let mut app = gripper_app();
+
+        app.finish_solving(Err("boom".to_owned()));
+
+        assert_eq!(app.solving_state, SolvingState::Failed);
+        assert!(matches!(app.outcome, Some(Err(ref e)) if e == "boom"));
+        assert!(app.solved_plan.is_none());
+    }
+
+    /// An unsolvable outcome completes without a plan.
+    #[test]
+    fn finish_solving_unsolvable_completes() {
+        let mut app = gripper_app();
+
+        app.finish_solving(Ok(SearchOutcome::Unsolvable(SearchStats::default())));
+
+        assert_eq!(app.solving_state, SolvingState::Completed);
+        assert!(app.solved_plan.is_none());
+    }
+
+    /// Reset returns focus to the domain list and drops results, messages and modals.
+    #[test]
+    fn reset_to_start_forgets_results() {
+        let mut app = gripper_app();
+        app.focus = AppFocus::CommandBar;
+        app.editing_input = Some(InputField::Timeout);
+        app.finish_solving(Ok(SearchOutcome::Plan(Plan::new(), SearchStats::default())));
+        app.set_flash_error("msg".to_owned());
+        app.plan_scroll_offset = 2;
+        app.open_planner_modal();
+        app.timeout_input = "5s".to_owned();
+
+        app.reset_to_start();
+
+        assert_eq!(app.focus, AppFocus::DomainList);
+        assert_eq!(app.editing_input, None);
+        assert!(app.outcome.is_none() && app.solved_plan.is_none());
+        assert_eq!(app.solving_state, SolvingState::Idle);
+        assert!(app.flash_error.is_none() && app.modal.is_none());
+        assert_eq!(app.plan_scroll_offset, 0);
+        assert_eq!(app.timeout_input, "5s", "settings are kept");
+    }
+}
