@@ -1,0 +1,64 @@
+# Included from the root Taskfile as `fuzz:` with dir: fuzz.
+# fuzz/ is a separate cargo-fuzz workspace and needs the nightly toolchain.
+version: '3'
+
+vars:
+  MAX_TIME: '{{.MAX_TIME | default "10"}}'
+
+tasks:
+  list:
+    desc: List fuzz targets
+    preconditions: &nightly
+      - sh: rustup toolchain list | grep -q nightly
+        msg: "Rust nightly required - rustup toolchain install nightly"
+      - sh: cargo fuzz --version
+        msg: "cargo-fuzz not found - cargo install --locked cargo-fuzz"
+    cmds:
+      - cargo +nightly fuzz list
+
+  build:
+    desc: Build all fuzz targets
+    preconditions: *nightly
+    cmds:
+      - cargo +nightly fuzz build
+
+  run:
+    desc: "Fuzz one target: task fuzz:run TARGET=name -- <libFuzzer flags>"
+    preconditions: *nightly
+    requires:
+      vars: [TARGET]
+    cmds:
+      - cargo +nightly fuzz run {{.TARGET}} -- {{.CLI_ARGS}}
+
+  smoke:
+    desc: Run every fuzz target for MAX_TIME seconds (default 10)
+    preconditions: *nightly
+    cmds:
+      - |
+        set -e
+        for target in $(cargo +nightly fuzz list); do
+          cargo +nightly fuzz run "$target" -- -max_total_time={{.MAX_TIME}}
+        done
+
+  fmt:
+    desc: Format the fuzz crate (separate workspace, not covered by cargo fmt --all)
+    cmds:
+      - cargo fmt --all
+
+  lint:
+    desc: Format check and clippy for the fuzz crate
+    preconditions: *nightly
+    cmds:
+      - cargo fmt --all --check
+      - cargo +nightly clippy --all-targets -- -D warnings
+
+  clean:
+    desc: Remove fuzz build output (keeps corpus/ and artifacts/)
+    cmds:
+      - rm -rf target coverage
+
+  clean:artifacts:
+    desc: Delete crash artifacts and generated corpora (destructive, asks first)
+    prompt: This deletes fuzz/artifacts and fuzz/corpus, including crash reproducers. Continue?
+    cmds:
+      - rm -rf artifacts corpus

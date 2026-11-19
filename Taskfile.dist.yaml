@@ -2,6 +2,12 @@
 # Keep `ci` in sync with .github/workflows/ci.yml: same checks, same flags.
 version: '3'
 
+includes:
+  fuzz:
+    taskfile: fuzz/Taskfile.dist.yaml
+    dir: fuzz
+    optional: true
+
 vars:
   CARGO: cargo
   # Prefer cargo-nextest when installed; fall back to cargo test.
@@ -59,6 +65,7 @@ tasks:
     aliases: [fmt:fix]
     cmds:
       - cargo fmt --all
+      - task: fuzz:fmt
 
   fmt:check:
     desc: Check formatting without modifying files
@@ -225,11 +232,14 @@ tasks:
       - task: test
       - task: deny
       - task: msrv
+      - task: fuzz:build
+      - task: fuzz:lint
 
   clean:
-    desc: Remove build output (cargo clean, lcov.info)
+    desc: Remove build output, including fuzz builds (keeps fuzz corpora and crash artifacts)
     cmds:
       - cargo clean
+      - task: fuzz:clean
       - rm -f lcov.info
 
   check:
