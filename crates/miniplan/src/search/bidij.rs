@@ -205,7 +205,13 @@ impl Planner for BiDij {
             let forward_empty = forward_open.is_empty();
             let backward_empty = backward_open.is_empty();
 
-            if forward_empty && backward_empty {
+            // Forward Dijkstra has expanded every reachable state, and the backward root (the
+            // goal itself, g = 0) has been matched against each of them, so `best_meet` is
+            // final. Backward regression alone may never run dry: it keeps producing new,
+            // possibly contradictory subgoals.
+            let forward_exhausted = forward_empty && !backward_entries.is_empty();
+
+            if (forward_empty && backward_empty) || forward_exhausted {
                 stats.elapsed = start.elapsed();
                 if let Some((_, _, _)) = best_meet {
                     let plan = reconstruct_plan_from_meet(
