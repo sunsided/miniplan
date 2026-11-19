@@ -50,6 +50,14 @@ cargo install miniplan-cli --locked
 
 The resulting binary is `miniplan` (not `miniplan-cli`).
 
+Prebuilt binaries for Linux (glibc and static musl), macOS and Windows are attached to each
+[GitHub Release](https://github.com/sunsided/miniplan/releases). Each one comes with a
+CycloneDX SBOM and build attestations; verify a download with:
+
+```bash
+gh attestation verify <archive-or-binary> --repo sunsided/miniplan
+```
+
 Or install from the git repository:
 
 ```bash

@@ -1,0 +1,42 @@
+[workspace]
+# Versions come from git tags; release-plz tags and creates GitHub Releases but never runs
+# cargo publish. publish-crates-io.yml publishes from the tag (tag-restricted `crates-io` environment).
+git_only = true
+# Release only when the release PR is merged, not on every push that bumps a version.
+release_always = false
+# Runs cargo-semver-checks on library crates; API breaks force a major bump.
+semver_check = true
+changelog_update = true
+git_release_enable = true
+# Versions are SemVer 2.0; pre-release versions (1.2.0-rc.1) become GitHub pre-releases.
+git_release_type = "auto"
+# Release PR branches follow the branching model (release/*), not the default `release-plz-`.
+pr_branch_prefix = "release/"
+# Commits are imperative ("Add X", "Fix Y"), not Conventional Commits: map verbs to bumps.
+custom_minor_increment_regex = "^(Add|Introduce|Support|Allow|Implement|Expose)\\b"
+custom_major_increment_regex = "(?m)^BREAKING CHANGE:|^Break\\b"
+# miniplan and miniplan-cli share one version and are always released together.
+
+[changelog]
+commit_parsers = [
+  { message = "^(Merge|Release|Bump version)\\b", skip = true },
+  # Dependabot subjects carry an ecosystem prefix (templates/.github/dependabot.yml).
+  { message = "^Actions: ", skip = true },
+  { message = "^(Add|Introduce|Support|Allow|Implement|Expose)\\b", group = "Added" },
+  { message = "^(Fix|Correct|Resolve|Prevent|Repair)\\b", group = "Fixed" },
+  { message = "^Deprecate\\b", group = "Deprecated" },
+  { message = "^(Remove|Drop|Delete)\\b", group = "Removed" },
+  { message = "^(Secure|Harden)\\b", group = "Security" },
+  { message = "^((Cargo|npm|Docker): )?Bump\\b", group = "Dependencies" },
+  { message = "^.*", group = "Changed" },
+]
+
+# The library keeps the repo's historic vX.Y.Z tags; the CLI gets miniplan-cli-vX.Y.Z.
+[[package]]
+name = "miniplan"
+git_tag_name = "v{{ version }}"
+version_group = "miniplan"
+
+[[package]]
+name = "miniplan-cli"
+version_group = "miniplan"
