@@ -9,7 +9,7 @@ use miniplan::ground::ground;
 use miniplan::heuristic::{HFF, HMax};
 use miniplan::pddl_io::load_combined_str;
 use miniplan::plan::Plan;
-use miniplan::search::{Astar, BiDij, Bfs, Gbfs, Planner, SearchLimits, SearchOutcome};
+use miniplan::search::{Astar, Bfs, BiDij, Gbfs, Planner, SearchLimits, SearchOutcome};
 use miniplan::task::Task;
 use proptest::prelude::*;
 

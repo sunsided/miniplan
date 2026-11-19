@@ -95,7 +95,16 @@ mod tests {
     /// Malformed input is rejected instead of guessed.
     #[test]
     fn rejects_malformed_input() {
-        for bad in ["", "  ", "30", "s", "5x", "1.5s", "-1s", "99999999999999999999s"] {
+        for bad in [
+            "",
+            "  ",
+            "30",
+            "s",
+            "5x",
+            "1.5s",
+            "-1s",
+            "99999999999999999999s",
+        ] {
             assert!(parse_duration(bad).is_err(), "{bad:?} should fail");
         }
     }
