@@ -23,6 +23,7 @@ miniplan = { version = "0.2.0", path = "crates/miniplan" }
 pddl = "0.2.0"
 pretty_assertions = "1"
 proptest = "1.12"
+criterion = "0.8.2"
 rustc-hash = "2"
 serde_json = "1"
 tempfile = "3"
