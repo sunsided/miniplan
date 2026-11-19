@@ -6,6 +6,8 @@ A PDDL planner library built around the [`pddl`](https://github.com/sunsided/pdd
 [![Crates.io](https://img.shields.io/crates/v/miniplan)](https://crates.io/crates/miniplan)
 [![Crates.io](https://img.shields.io/crates/v/miniplan-cli)](https://crates.io/crates/miniplan-cli)
 [![docs.rs](https://img.shields.io/docsrs/miniplan)](https://docs.rs/miniplan)
+[![codecov](https://codecov.io/gh/sunsided/miniplan/graph/badge.svg)](https://codecov.io/gh/sunsided/miniplan)
+[![MSRV](https://img.shields.io/crates/msrv/miniplan)](https://crates.io/crates/miniplan)
 [![License](https://img.shields.io/badge/license-EUPL--1.2-blue)](https://spdx.org/licenses/EUPL-1.2.html)
 ![Rust Edition](https://img.shields.io/badge/edition-2024-orange?logo=rust)
 [![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance/)
@@ -266,6 +268,16 @@ Taskfile.dist.yaml       Task definitions
 
 - **Current**: grounded STRIPS, BFS/A*/GBFS, h^FF
 - **Planned**: landmark heuristics, plan validation, more PDDL coverage (numerics, durative actions)
+
+## MSRV
+
+The minimum supported Rust version is **1.88** (let-chains). It is a signal, not a contract:
+it may rise in a minor release when a dependency or a language feature needs it, and the
+changelog says so.
+
+## Contributing
+
+See [CONTRIBUTING.md](https://github.com/sunsided/miniplan/blob/main/CONTRIBUTING.md).
 
 ## License
 

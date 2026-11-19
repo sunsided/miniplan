@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 keywords.workspace = true
-categories.workspace = true
+categories = ["science", "command-line-utilities"]
 readme = "../../README.md"
 
 [[bin]]
