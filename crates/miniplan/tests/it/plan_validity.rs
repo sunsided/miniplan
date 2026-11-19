@@ -9,7 +9,7 @@ use miniplan::ground::ground;
 use miniplan::heuristic::{HFF, HMax};
 use miniplan::pddl_io::load_combined_str;
 use miniplan::plan::Plan;
-use miniplan::search::{Astar, Bfs, BiDij, Gbfs, Planner, SearchLimits, SearchOutcome};
+use miniplan::search::{Astar, Bfs, BiDij, BibfsUc, Gbfs, Planner, SearchLimits, SearchOutcome};
 use miniplan::task::Task;
 use proptest::prelude::*;
 
@@ -165,4 +165,17 @@ fn bidij_reports_unreachable_goal_as_unsolvable() {
     };
 
     assert!(solve(&mut BiDij::new(), &ground_case(&case)).is_none());
+}
+
+/// Regression: `BibfsUc` looped forever on the same kind of unreachable goal, because it
+/// only stopped once both frontiers were empty and backward regression never runs dry.
+#[test]
+fn bibfs_uc_reports_unreachable_goal_as_unsolvable() {
+    let case = GraphCase {
+        nodes: 6,
+        edges: vec![(0, 2), (3, 5), (5, 3)],
+        goal: 5,
+    };
+
+    assert!(solve(&mut BibfsUc::new(), &ground_case(&case)).is_none());
 }

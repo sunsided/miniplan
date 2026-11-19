@@ -93,7 +93,10 @@ impl Planner for BibfsUc {
             let forward_empty = forward_queue.is_empty();
             let backward_empty = backward_queue.is_empty();
 
-            if forward_empty && backward_empty {
+            // Every forward state is checked against all backward subgoals, the goal itself
+            // included, when it is generated. Once forward runs dry no reachable state
+            // satisfies the goal. Backward regression alone may never run dry.
+            if forward_empty {
                 stats.elapsed = start.elapsed();
                 return Ok(SearchOutcome::Unsolvable(stats));
             }
