@@ -529,4 +529,3 @@ tasks:
       - doc:open
     cmds:
       - cargo doc -p miniplan --no-deps --all-features --open
-
