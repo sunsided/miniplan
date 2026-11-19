@@ -1,0 +1,15 @@
+version = 1
+
+# Default: everything under the project license expression.
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Markus Mayer"
+SPDX-License-Identifier = "EUPL-1.2"
+
+# Rust examples are public domain so readers can copy them freely. examples/pddl stays EUPL-1.2.
+[[annotations]]
+path = "crates/*/examples/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Markus Mayer"
+SPDX-License-Identifier = "CC0-1.0"

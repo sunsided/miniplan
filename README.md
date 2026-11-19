@@ -269,6 +269,13 @@ Taskfile.dist.yaml       Task definitions
 
 Licensed under the **European Union Public Licence 1.2** (EUPL-1.2). See the [SPDX entry](https://spdx.org/licenses/EUPL-1.2.html) or the [official EU page](https://joinup.ec.europa.eu/collection/eupl) for details.
 
+The Rust example programs in `crates/miniplan/examples/` are public domain (CC0-1.0), so you
+can copy them into anything. Per-file licensing is declared in
+[`REUSE.toml`](https://github.com/sunsided/miniplan/blob/main/REUSE.toml).
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion
+in this work by you shall be licensed as above, without any additional terms or conditions.
+
 ## Acknowledgements
 
 - [pddl-rs](https://github.com/sunsided/pddl-rs) — PDDL parser, forked and maintained for this project.
