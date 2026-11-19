@@ -216,7 +216,8 @@ jobs:
       - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           tool: cargo-fuzz
-      - run: cargo +nightly fuzz build
+      # The prebuilt cargo-fuzz is a musl binary and defaults --target to its own triple.
+      - run: cargo +nightly fuzz build --target x86_64-unknown-linux-gnu
         working-directory: fuzz
       - run: cargo fmt --all --check && cargo +nightly clippy --all-targets -- -D warnings
         working-directory: fuzz
