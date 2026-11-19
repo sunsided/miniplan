@@ -1,0 +1,137 @@
+# Release binaries: on the binary crate's release tag, build auditable binaries per target (always
+# including a static linux-musl build), extract a CycloneDX SBOM from each binary, attest binary,
+# SBOM and archive (public repos), and attach the archives to the GitHub Release.
+# docs/binaries.md. Action refs are tags here; pin with scripts/pin-actions.py.
+name: Binaries
+
+on:
+  push:
+    tags:
+      # The CLI crate's tag, plus the same pattern with a '-*' suffix for SemVer pre-releases.
+      - 'miniplan-cli-v[0-9]+.[0-9]+.[0-9]+'
+      - 'miniplan-cli-v[0-9]+.[0-9]+.[0-9]+-*'
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  BIN: miniplan
+  CRATE: miniplan-cli
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest, archive: tar.gz }
+          # Always ship a static musl build: runs on any Linux, regardless of glibc version.
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, archive: tar.gz, cross: true }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, archive: tar.gz }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm, archive: tar.gz, cross: true }
+          - { target: aarch64-apple-darwin, os: macos-latest, archive: tar.gz }
+          - { target: x86_64-apple-darwin, os: macos-latest, archive: tar.gz }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, archive: zip, exe: .exe }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - if: matrix.cross
+        uses: taiki-e/setup-cross-toolchain-action@12b7ad4acfa95a1476779d6c06699b96ec1691f8 # v1.42.0
+        with:
+          target: ${{ matrix.target }}
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-auditable
+      - name: Build (cargo auditable embeds the dependency tree)
+        run: cargo auditable build --release --locked -p "$CRATE" --bin "$BIN" --target "$TARGET"
+        env:
+          TARGET: ${{ matrix.target }}
+      - name: Extract the SBOM from the binary
+        run: |
+          cargo install --locked auditable2cdx@0.1.0
+          mkdir -p dist
+          cp "target/$TARGET/release/$BIN$EXE" dist/
+          auditable2cdx "dist/$BIN$EXE" > "dist/$BIN.cdx.json"
+        env:
+          TARGET: ${{ matrix.target }}
+          EXE: ${{ matrix.exe }}
+      - name: Attest the binary (build provenance)
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/${{ env.BIN }}${{ matrix.exe }}
+      - name: Attest the binary's SBOM
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/${{ env.BIN }}${{ matrix.exe }}
+          sbom-path: dist/${{ env.BIN }}.cdx.json
+      - name: Package
+        id: package
+        run: |
+          name="$BIN-$GITHUB_REF_NAME-$TARGET"
+          cp README.md dist/ 2>/dev/null || true
+          cp -r LICENSES dist/ 2>/dev/null || true
+          if [ "$ARCHIVE" = zip ]; then
+            (cd dist && 7z a -tzip "../$name.zip" .)
+          else
+            tar -czf "$name.tar.gz" -C dist .
+          fi
+          echo "file=$name.$ARCHIVE" >> "$GITHUB_OUTPUT"
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCHIVE: ${{ matrix.archive }}
+      - name: Attest the archive
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.package.outputs.file }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ steps.package.outputs.file }}
+          if-no-files-found: error
+
+  upload:
+    name: attach to release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Upload to the GitHub Release (created by release-plz; wait for it)
+        run: |
+          found=false
+          for _ in $(seq 1 60); do
+            if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              found=true
+              break
+            fi
+            sleep 10
+          done
+          if [ "$found" != true ]; then
+            echo "::error::No GitHub Release for $GITHUB_REF_NAME after 10 minutes; check the release-plz run."
+            exit 1
+          fi
+          gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

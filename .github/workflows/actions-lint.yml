@@ -1,0 +1,45 @@
+# Lints the workflows themselves. Action refs are tags here; pin with scripts/pin-actions.py.
+name: GitHub Actions lint
+
+# No path filters: a path-filtered workflow cannot be a required status check.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # taiki-e/install-action dropped its actionlint manifest; use the upstream image, pinned by digest.
+      - uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # 1.7.12
+        with:
+          args: -color
+
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Blocking mode: findings fail the job. For SARIF in the Security tab instead,
+      # drop advanced-security and add `security-events: write` (findings then stop failing the job).
+      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          advanced-security: false

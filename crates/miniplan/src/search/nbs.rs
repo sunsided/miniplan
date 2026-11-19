@@ -1,129 +1,48 @@
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
-use std::time::Instant;
+//! Near-Optimal Bidirectional Search ([`Nbs`], Chen et al. 2017).
+//!
+//! Each direction keeps two open lists over the same nodes, one ordered by `f = g + h` and
+//! one by `g` (a two-heap [`Frontier`]). The side with the smaller open `f` expands next,
+//! and the search stops once the best meet costs no more than the [`frontier_bound`] of the
+//! open lists.
+//!
+//! The forward heuristic is the planner's [`Heuristic`]. The backward one is the largest
+//! relaxed reachability cost (from the initial state) among a subgoal's required facts;
+//! subgoals with an unreachable fact are pruned.
+//!
+//! ```mermaid
+//! flowchart TD
+//!     limits{budget used up?} -->|yes| limit[LimitReached]
+//!     limits -->|no| bound{"bound >= best meet?"}
+//!     bound -->|yes| plan[Plan]
+//!     bound -->|no| done{both sides exhausted?}
+//!     done -->|"yes, meet"| plan
+//!     done -->|"yes, no meet"| unsolvable[Unsolvable]
+//!     done -->|no| side{"f_fwd <= f_bwd?"}
+//!     side -->|yes| fwd[expand forward]
+//!     side -->|no| bwd[expand backward]
+//!     fwd --> limits
+//!     bwd --> limits
+//! ```
 
-use fixedbitset::FixedBitSet;
-use rustc_hash::FxHashMap;
+use std::mem;
 
 use crate::error::MiniplanError;
 use crate::heuristic::{HFF, rpg_fact_costs};
-use crate::plan::{Plan, PlanStep};
+use crate::plan::Plan;
+use crate::search::meet::MeetIndex;
+use crate::search::open_list::{Frontier, frontier_bound, prefer_forward};
+use crate::search::outcome::{Budget, reject_conditional_effects};
+use crate::search::regression::{Subgoal, can_regress, max_fact_cost, regress};
 use crate::search::{
     Heuristic, Planner, PlannerCapabilities, SearchLimits, SearchOutcome, SearchStats,
 };
-use crate::task::{OpId, Operator, State, Task};
+use crate::task::{OpId, State, Task};
 
-type SubgoalKey = (State, State);
+/// Index of the heap ordered by `f = g + h` in an NBS [`Frontier`]. Picks expansions.
+const BY_F: usize = 0;
 
-#[derive(Clone)]
-struct ForwardNodeF {
-    f: f64,
-    g: f64,
-    state: State,
-    epoch: u64,
-}
-
-impl PartialEq for ForwardNodeF {
-    fn eq(&self, other: &Self) -> bool {
-        self.f == other.f
-    }
-}
-
-impl Eq for ForwardNodeF {}
-
-impl PartialOrd for ForwardNodeF {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for ForwardNodeF {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.f.partial_cmp(&self.f).unwrap_or(Ordering::Equal)
-    }
-}
-
-#[derive(Clone)]
-struct ForwardNodeG {
-    g: f64,
-    state: State,
-    epoch: u64,
-}
-
-impl PartialEq for ForwardNodeG {
-    fn eq(&self, other: &Self) -> bool {
-        self.g == other.g
-    }
-}
-
-impl Eq for ForwardNodeG {}
-
-impl PartialOrd for ForwardNodeG {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for ForwardNodeG {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.g.partial_cmp(&self.g).unwrap_or(Ordering::Equal)
-    }
-}
-
-#[derive(Clone)]
-struct BackwardNodeF {
-    f: f64,
-    g: f64,
-    subgoal: SubgoalKey,
-    epoch: u64,
-}
-
-impl PartialEq for BackwardNodeF {
-    fn eq(&self, other: &Self) -> bool {
-        self.f == other.f
-    }
-}
-
-impl Eq for BackwardNodeF {}
-
-impl PartialOrd for BackwardNodeF {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for BackwardNodeF {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.f.partial_cmp(&self.f).unwrap_or(Ordering::Equal)
-    }
-}
-
-#[derive(Clone)]
-struct BackwardNodeG {
-    g: f64,
-    subgoal: SubgoalKey,
-    epoch: u64,
-}
-
-impl PartialEq for BackwardNodeG {
-    fn eq(&self, other: &Self) -> bool {
-        self.g == other.g
-    }
-}
-
-impl Eq for BackwardNodeG {}
-
-impl PartialOrd for BackwardNodeG {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for BackwardNodeG {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.g.partial_cmp(&self.g).unwrap_or(Ordering::Equal)
-    }
-}
+/// Index of the heap ordered by `g` in an NBS [`Frontier`].
+const BY_G: usize = 1;
 
 /// Near-Optimal Bidirectional Search (NBS, Chen et al. 2017).
 ///
@@ -143,100 +62,30 @@ impl Ord for BackwardNodeG {
 /// let planner = Nbs::with_defaults();
 /// ```
 pub struct Nbs {
+    /// Estimates the cost from a state to the goal for the forward direction.
     h_forward: Box<dyn Heuristic>,
 }
 
 impl Nbs {
     /// Create a new NBS planner with the given forward heuristic.
+    #[must_use]
     pub fn new(h_forward: Box<dyn Heuristic>) -> Self {
         Self { h_forward }
     }
 
     /// Create an NBS planner with default heuristic (HFF).
+    #[must_use]
     pub fn with_defaults() -> Self {
         Self::new(Box::new(HFF))
     }
 }
 
-fn is_relevant(op: &Operator, g_pos: &State, g_neg: &State) -> bool {
-    op.add.0.ones().any(|b| g_pos.0.contains(b)) || op.del.0.ones().any(|b| g_neg.0.contains(b))
-}
-
-fn is_consistent(op: &Operator, g_pos: &State, g_neg: &State) -> bool {
-    !op.del.0.ones().any(|b| g_pos.0.contains(b)) && !op.add.0.ones().any(|b| g_neg.0.contains(b))
-}
-
-fn h_b(sg: &SubgoalKey, fact_costs: &[f64]) -> f64 {
-    let (g_pos, _g_neg) = sg;
-    let mut max_cost = 0.0;
-    for b in g_pos.0.ones() {
-        let c = fact_costs[b];
-        if c == f64::INFINITY {
-            return f64::INFINITY;
-        }
-        if c > max_cost {
-            max_cost = c;
-        }
-    }
-    max_cost
-}
-
-fn build_plan_from_ops(ops: &[OpId], task: &Task) -> Plan {
-    let mut plan = Plan::new();
-    let mut total_cost = 0.0;
-    for &op_id in ops {
-        if let Some(op) = task.operators.get(op_id.0) {
-            plan.steps.push(PlanStep {
-                op_id,
-                op_name: op.name.clone(),
-            });
-            total_cost += op.cost as f64;
-        }
-    }
-    plan.cost = total_cost;
-    plan
-}
-
-fn reconstruct_plan_from_meet(
-    meet: &(State, SubgoalKey, f64),
-    forward_parent: &FxHashMap<State, (Option<State>, OpId)>,
-    backward_parent: &FxHashMap<SubgoalKey, (Option<SubgoalKey>, OpId)>,
-    task: &Task,
-) -> Plan {
-    let (meet_state, meet_subgoal, _total) = meet;
-
-    let mut forward_ops: Vec<OpId> = Vec::new();
-    let mut current = meet_state.clone();
-    while let Some((parent, op)) = forward_parent.get(&current) {
-        if op.0 == usize::MAX {
-            break;
-        }
-        forward_ops.push(*op);
-        current = parent.clone().unwrap();
-    }
-    forward_ops.reverse();
-
-    let mut backward_ops: Vec<OpId> = Vec::new();
-    let mut sg_current = meet_subgoal.clone();
-    while let Some((parent, op)) = backward_parent.get(&sg_current) {
-        if op.0 == usize::MAX {
-            break;
-        }
-        backward_ops.push(*op);
-        sg_current = parent.clone().unwrap();
-    }
-
-    let mut all_ops = forward_ops;
-    all_ops.extend(backward_ops);
-    build_plan_from_ops(&all_ops, task)
-}
-
 impl Planner for Nbs {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "nbs"
     }
 
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         "Near-Optimal Bidirectional Search (Chen et al. 2017)"
     }
 
@@ -246,478 +95,201 @@ impl Planner for Nbs {
             | PlannerCapabilities::ACTION_COSTS
     }
 
+    /// Runs NBS on `task`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MiniplanError::UnsupportedConditionalEffects`] if any operator has a
+    /// conditional effect, since regression through them is not supported.
     fn solve(
         &mut self,
         task: &Task,
         limits: &SearchLimits,
     ) -> Result<SearchOutcome, MiniplanError> {
-        let start = Instant::now();
-        let mut stats = SearchStats::default();
-
-        for op in &task.operators {
-            if !op.conditional.is_empty() {
-                return Err(MiniplanError::UnsupportedConditionalEffects);
-            }
-        }
+        let budget = Budget::start(limits);
+        reject_conditional_effects(task)?;
 
         if task.init.satisfies(&task.goal_pos, &task.goal_neg) {
-            stats.elapsed = start.elapsed();
-            return Ok(SearchOutcome::Plan(Plan::new(), stats));
+            return Ok(budget.plan(Plan::new(), SearchStats::default()));
         }
 
-        let num_facts = task.num_facts();
+        Ok(Search::new(task, self.h_forward.as_ref(), budget).run())
+    }
+}
 
-        let fact_costs = rpg_fact_costs(task, &task.init);
+/// The state of one NBS run.
+struct Search<'a> {
+    /// The task being solved.
+    task: &'a Task,
+    /// The forward heuristic.
+    heuristic: &'a dyn Heuristic,
+    /// Limits and clock of this run.
+    budget: Budget<'a>,
+    /// Counters reported with the outcome.
+    stats: SearchStats,
+    /// Relaxed reachability cost of each fact from the initial state; the backward
+    /// heuristic.
+    fact_costs: Vec<f64>,
+    /// Open lists over complete states, rooted at the initial state.
+    forward: Frontier<State, 2>,
+    /// Open lists over subgoals, rooted at the goal. Stays empty if the goal needs an
+    /// unreachable fact.
+    backward: Frontier<Subgoal, 2>,
+    /// Expanded nodes of both sides and the cheapest meet so far.
+    meets: MeetIndex,
+}
 
-        let mut forward_entries: Vec<(State, f64, u64)> = Vec::new();
-        let mut forward_by_fact: Vec<Vec<u32>> = vec![Vec::new(); num_facts];
+impl<'a> Search<'a> {
+    /// Opens the forward root and, unless the goal is relaxed-unreachable, the backward
+    /// root.
+    fn new(task: &'a Task, heuristic: &'a dyn Heuristic, budget: Budget<'a>) -> Self {
+        let mut search = Self {
+            task,
+            heuristic,
+            budget,
+            stats: SearchStats::default(),
+            fact_costs: rpg_fact_costs(task, &task.init),
+            forward: Frontier::new(),
+            backward: Frontier::new(),
+            meets: MeetIndex::new(task.num_facts()),
+        };
 
-        let mut backward_entries: Vec<(SubgoalKey, f64, u64)> = Vec::new();
-        let mut backward_by_pos_fact: Vec<Vec<u32>> = vec![Vec::new(); num_facts];
-        let mut backward_empty_pos: Vec<u32> = Vec::new();
+        let init_h = heuristic.estimate(task, &task.init).0;
+        search
+            .forward
+            .push_root(task.init.clone(), [0.0 + init_h, 0.0]);
 
-        let mut scratch_back_seen = FixedBitSet::with_capacity(0);
-
-        let mut forward_open_f: BinaryHeap<ForwardNodeF> = BinaryHeap::new();
-        let mut forward_open_g: BinaryHeap<ForwardNodeG> = BinaryHeap::new();
-        let mut forward_g: FxHashMap<State, f64> = FxHashMap::default();
-        let mut forward_h: FxHashMap<State, f64> = FxHashMap::default();
-        let mut forward_parent: FxHashMap<State, (Option<State>, OpId)> = FxHashMap::default();
-        let mut forward_epoch: FxHashMap<State, u64> = FxHashMap::default();
-        let mut forward_epoch_counter: u64 = 0;
-
-        let init_h = self.h_forward.estimate(task, &task.init).0;
-        let init_f = 0.0 + init_h;
-        forward_open_f.push(ForwardNodeF {
-            f: init_f,
-            g: 0.0,
-            state: task.init.clone(),
-            epoch: 0,
-        });
-        forward_open_g.push(ForwardNodeG {
-            g: 0.0,
-            state: task.init.clone(),
-            epoch: 0,
-        });
-        forward_g.insert(task.init.clone(), 0.0);
-        forward_h.insert(task.init.clone(), init_h);
-        forward_parent.insert(task.init.clone(), (None, OpId(usize::MAX)));
-        forward_epoch.insert(task.init.clone(), 0);
-
-        let init_subgoal = (task.goal_pos.clone(), task.goal_neg.clone());
-        let mut backward_open_f: BinaryHeap<BackwardNodeF> = BinaryHeap::new();
-        let mut backward_open_g: BinaryHeap<BackwardNodeG> = BinaryHeap::new();
-        let mut backward_g: FxHashMap<SubgoalKey, f64> = FxHashMap::default();
-        let mut backward_h: FxHashMap<SubgoalKey, f64> = FxHashMap::default();
-        let mut backward_parent: FxHashMap<SubgoalKey, (Option<SubgoalKey>, OpId)> =
-            FxHashMap::default();
-        let mut backward_epoch: FxHashMap<SubgoalKey, u64> = FxHashMap::default();
-        let mut backward_epoch_counter: u64 = 0;
-
-        let sg_h_b = h_b(&init_subgoal, &fact_costs);
-        if sg_h_b != f64::INFINITY {
-            let sg_f = 0.0 + sg_h_b;
-            backward_open_f.push(BackwardNodeF {
-                f: sg_f,
-                g: 0.0,
-                subgoal: init_subgoal.clone(),
-                epoch: 0,
-            });
-            backward_open_g.push(BackwardNodeG {
-                g: 0.0,
-                subgoal: init_subgoal.clone(),
-                epoch: 0,
-            });
-            backward_g.insert(init_subgoal.clone(), 0.0);
-            backward_h.insert(init_subgoal.clone(), sg_h_b);
-            backward_parent.insert(init_subgoal.clone(), (None, OpId(usize::MAX)));
-            backward_epoch.insert(init_subgoal, 0);
+        let goal = (task.goal_pos.clone(), task.goal_neg.clone());
+        let goal_h = max_fact_cost(&goal.0, &search.fact_costs);
+        if goal_h != f64::INFINITY {
+            search.backward.push_root(goal, [0.0 + goal_h, 0.0]);
         }
 
-        let mut best_meet: Option<(State, SubgoalKey, f64)> = None;
+        search
+    }
 
+    /// Expands one side at a time until a limit, the optimal meet or exhaustion ends the
+    /// search.
+    fn run(mut self) -> SearchOutcome {
         loop {
-            if let Some(max_nodes) = limits.node_budget
-                && stats.nodes_expanded >= max_nodes
-            {
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::LimitReached(stats));
-            }
-            if let Some(timeout) = limits.time_budget
-                && start.elapsed() >= timeout
-            {
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::LimitReached(stats));
+            if self.budget.exhausted(&self.stats) {
+                return self.budget.limit_reached(self.stats);
             }
 
-            let f_min_f = forward_open_f.peek().map(|n| n.f);
-            let f_min_b = backward_open_f.peek().map(|n| n.f);
-            let g_min_f = forward_open_g.peek().map(|n| n.g);
-            let g_min_b = backward_open_g.peek().map(|n| n.g);
-
-            let gm_bound = match (f_min_f, f_min_b, g_min_f, g_min_b) {
-                (Some(ff), Some(fb), Some(gf), Some(gb)) => ff.max(fb).max(gf + gb),
-                (Some(ff), None, Some(gf), _) => ff.max(gf),
-                (None, Some(fb), _, Some(gb)) => fb.max(gb),
-                _ => f64::INFINITY,
-            };
-
-            if let Some((_, _, meet_cost)) = best_meet
-                && gm_bound >= meet_cost
-            {
-                stats.elapsed = start.elapsed();
-                let plan = reconstruct_plan_from_meet(
-                    &best_meet.unwrap(),
-                    &forward_parent,
-                    &backward_parent,
-                    task,
-                );
-                stats.plan_cost = plan.cost;
-                stats.plan_length = plan.len();
-                return Ok(SearchOutcome::Plan(plan, stats));
+            if let Some(outcome) = self.check_finished() {
+                return outcome;
             }
 
-            let forward_empty = forward_open_f.is_empty() || forward_open_g.is_empty();
-            let backward_empty = backward_open_f.is_empty() || backward_open_g.is_empty();
-
-            if forward_empty && backward_empty {
-                stats.elapsed = start.elapsed();
-                if let Some((_, _, _)) = best_meet {
-                    let plan = reconstruct_plan_from_meet(
-                        &best_meet.unwrap(),
-                        &forward_parent,
-                        &backward_parent,
-                        task,
-                    );
-                    stats.plan_cost = plan.cost;
-                    stats.plan_length = plan.len();
-                    return Ok(SearchOutcome::Plan(plan, stats));
-                }
-                return Ok(SearchOutcome::Unsolvable(stats));
-            }
-
-            let expand_forward = match (f_min_f, f_min_b) {
-                (None, _) => false,
-                (_, None) => true,
-                (Some(ff), Some(fb)) => ff <= fb,
-            };
-
-            if expand_forward {
-                let node_f = loop {
-                    match forward_open_f.pop() {
-                        Some(n) => {
-                            let g = *forward_g.get(&n.state).unwrap_or(&f64::INFINITY);
-                            let epoch = *forward_epoch.get(&n.state).unwrap_or(&0);
-                            if n.g == g && n.epoch == epoch {
-                                break Some(n);
-                            }
-                        }
-                        None => break None,
-                    }
-                };
-                let Some(node_f) = node_f else {
-                    continue;
-                };
-                let state = node_f.state.clone();
-                let g = node_f.g;
-
-                let node_g = loop {
-                    match forward_open_g.pop() {
-                        Some(n) => {
-                            let gg = *forward_g.get(&n.state).unwrap_or(&f64::INFINITY);
-                            let epoch = *forward_epoch.get(&n.state).unwrap_or(&0);
-                            if n.g == gg && n.epoch == epoch {
-                                break Some(n);
-                            }
-                        }
-                        None => break None,
-                    }
-                };
-                let Some(_node_g) = node_g else {
-                    continue;
-                };
-
-                stats.nodes_expanded += 1;
-
-                let fwd_idx = forward_entries.len() as u32;
-                forward_entries.push((state.clone(), g, forward_epoch_counter));
-                for f in state.0.ones() {
-                    forward_by_fact[f].push(fwd_idx);
-                }
-
-                scratch_back_seen.grow(backward_entries.len());
-                scratch_back_seen.clear();
-
-                for f in state.0.ones() {
-                    for &idx in &backward_by_pos_fact[f] {
-                        if !scratch_back_seen.put(idx as usize) {
-                            let (sg, sg_g, _) = &backward_entries[idx as usize];
-                            if state.satisfies(&sg.0, &sg.1) {
-                                let total = g + sg_g;
-                                if best_meet.as_ref().is_none_or(|(_, _, c)| total < *c) {
-                                    best_meet = Some((state.clone(), sg.clone(), total));
-                                }
-                            }
-                        }
-                    }
-                }
-                for &idx in &backward_empty_pos {
-                    if !scratch_back_seen.put(idx as usize) {
-                        let (sg, sg_g, _) = &backward_entries[idx as usize];
-                        if state.satisfies(&sg.0, &sg.1) {
-                            let total = g + sg_g;
-                            if best_meet.as_ref().is_none_or(|(_, _, c)| total < *c) {
-                                best_meet = Some((state.clone(), sg.clone(), total));
-                            }
-                        }
-                    }
-                }
-
-                for op in &task.operators {
-                    if state.applicable(op) {
-                        let next = state.apply(op);
-                        let new_g = g + op.cost as f64;
-                        if new_g < *forward_g.get(&next).unwrap_or(&f64::INFINITY) {
-                            forward_epoch_counter += 1;
-                            let ep = forward_epoch_counter;
-                            forward_g.insert(next.clone(), new_g);
-                            let h = self.h_forward.estimate(task, &next).0;
-                            forward_h.insert(next.clone(), h);
-                            forward_parent.insert(next.clone(), (Some(state.clone()), op.id));
-                            forward_epoch.insert(next.clone(), ep);
-                            stats.nodes_generated += 1;
-                            let f = new_g + h;
-                            forward_open_f.push(ForwardNodeF {
-                                f,
-                                g: new_g,
-                                state: next.clone(),
-                                epoch: ep,
-                            });
-                            forward_open_g.push(ForwardNodeG {
-                                g: new_g,
-                                state: next,
-                                epoch: ep,
-                            });
-                        }
-                    }
-                }
+            let forward_f = self.forward.min_priority(BY_F);
+            let backward_f = self.backward.min_priority(BY_F);
+            if prefer_forward(forward_f, backward_f) {
+                self.expand_forward();
             } else {
-                let node_f = loop {
-                    match backward_open_f.pop() {
-                        Some(n) => {
-                            let g = *backward_g.get(&n.subgoal).unwrap_or(&f64::INFINITY);
-                            let epoch = *backward_epoch.get(&n.subgoal).unwrap_or(&0);
-                            if n.g == g && n.epoch == epoch {
-                                break Some(n);
-                            }
-                        }
-                        None => break None,
-                    }
-                };
-                let Some(node_f) = node_f else {
-                    continue;
-                };
-                let _subgoal = node_f.subgoal.clone();
-                let g = node_f.g;
+                self.expand_backward();
+            }
+        }
+    }
 
-                let node_g = loop {
-                    match backward_open_g.pop() {
-                        Some(n) => {
-                            let gg = *backward_g.get(&n.subgoal).unwrap_or(&f64::INFINITY);
-                            let epoch = *backward_epoch.get(&n.subgoal).unwrap_or(&0);
-                            if n.g == gg && n.epoch == epoch {
-                                break Some(n);
-                            }
-                        }
-                        None => break None,
-                    }
-                };
-                let Some(_node_g) = node_g else {
-                    continue;
-                };
+    /// Returns the final outcome once the search is decided, or `None` to keep going.
+    ///
+    /// The search is decided when the [`frontier_bound`] reaches the best meet's cost, or
+    /// when both sides are exhausted.
+    fn check_finished(&mut self) -> Option<SearchOutcome> {
+        let bound = frontier_bound(
+            self.forward.min_priority(BY_F),
+            self.backward.min_priority(BY_F),
+            self.forward.min_priority(BY_G),
+            self.backward.min_priority(BY_G),
+        );
 
-                stats.nodes_expanded += 1;
+        if self.meets.best().is_some_and(|meet| bound >= meet.cost)
+            || (self.forward.is_exhausted() && self.backward.is_exhausted())
+        {
+            return Some(self.finish());
+        }
 
-                let (g_pos, g_neg) = node_f.subgoal.clone();
+        None
+    }
 
-                let bwd_idx = backward_entries.len() as u32;
-                backward_entries.push(((g_pos.clone(), g_neg.clone()), g, backward_epoch_counter));
-                let g_pos_ones: Vec<_> = g_pos.0.ones().collect();
-                if g_pos_ones.is_empty() {
-                    backward_empty_pos.push(bwd_idx);
-                } else {
-                    for &f in &g_pos_ones {
-                        backward_by_pos_fact[f].push(bwd_idx);
-                    }
-                }
+    /// Ends the search with the best meet's plan, or as unsolvable without one.
+    fn finish(&mut self) -> SearchOutcome {
+        let stats = mem::take(&mut self.stats);
+        match self.meets.best() {
+            Some(meet) => {
+                let plan = meet.plan(self.forward.parents(), self.backward.parents(), self.task);
+                self.budget.plan(plan, stats)
+            }
+            None => self.budget.unsolvable(stats),
+        }
+    }
 
-                if g_pos_ones.is_empty() {
-                    for (f_state, f_g, _) in &forward_entries {
-                        if f_state.satisfies(&g_pos, &g_neg) {
-                            let total = f_g + g;
-                            if best_meet.as_ref().is_none_or(|(_, _, c)| total < *c) {
-                                best_meet =
-                                    Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
-                            }
-                        }
-                    }
-                } else {
-                    let rarest = g_pos_ones
-                        .iter()
-                        .min_by_key(|&&f| forward_by_fact[f].len())
-                        .copied()
-                        .unwrap();
-                    for &idx in &forward_by_fact[rarest] {
-                        let (f_state, f_g, _) = &forward_entries[idx as usize];
-                        if f_state.satisfies(&g_pos, &g_neg) {
-                            let total = f_g + g;
-                            if best_meet.as_ref().is_none_or(|(_, _, c)| total < *c) {
-                                best_meet =
-                                    Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
-                            }
-                        }
-                    }
-                }
+    /// Expands the forward state with the smallest open `f`, if both heaps still hold a
+    /// live entry.
+    fn expand_forward(&mut self) {
+        let Some((state, g)) = self.forward.pop_expansion() else {
+            return;
+        };
 
-                for op in &task.operators {
-                    if is_relevant(op, &g_pos, &g_neg) && is_consistent(op, &g_pos, &g_neg) {
-                        let mut g_pos_new = State::new(num_facts);
-                        let mut g_neg_new = State::new(num_facts);
-                        for bit in g_pos.0.ones() {
-                            if !op.add.0.contains(bit) {
-                                g_pos_new.0.set(bit, true);
-                            }
-                        }
-                        for bit in op.pre_pos.0.ones() {
-                            g_pos_new.0.set(bit, true);
-                        }
-                        for bit in g_neg.0.ones() {
-                            if !op.del.0.contains(bit) {
-                                g_neg_new.0.set(bit, true);
-                            }
-                        }
-                        for bit in op.pre_neg.0.ones() {
-                            g_neg_new.0.set(bit, true);
-                        }
-                        let new_sg = (g_pos_new, g_neg_new);
-                        let new_g = g + op.cost as f64;
-                        if new_g < *backward_g.get(&new_sg).unwrap_or(&f64::INFINITY) {
-                            let new_h_b = h_b(&new_sg, &fact_costs);
-                            if new_h_b == f64::INFINITY {
-                                continue;
-                            }
-                            backward_epoch_counter += 1;
-                            let ep = backward_epoch_counter;
-                            backward_g.insert(new_sg.clone(), new_g);
-                            backward_h.insert(new_sg.clone(), new_h_b);
-                            backward_parent.insert(
-                                new_sg.clone(),
-                                (Some((g_pos.clone(), g_neg.clone())), op.id),
-                            );
-                            backward_epoch.insert(new_sg.clone(), ep);
-                            stats.nodes_generated += 1;
-                            let f = new_g + new_h_b;
-                            backward_open_f.push(BackwardNodeF {
-                                f,
-                                g: new_g,
-                                subgoal: new_sg.clone(),
-                                epoch: ep,
-                            });
-                            backward_open_g.push(BackwardNodeG {
-                                g: new_g,
-                                subgoal: new_sg,
-                                epoch: ep,
-                            });
-                        }
-                    }
+        self.stats.nodes_expanded += 1;
+        self.meets.add_forward(&state, g);
+
+        let task = self.task;
+        for op in &task.operators {
+            if state.applicable(op) {
+                let next = state.apply(op);
+                let new_g = g + f64::from(op.cost);
+                if self.forward.improves(&next, new_g) {
+                    let h = self.heuristic.estimate(task, &next).0;
+                    self.stats.nodes_generated += 1;
+                    self.forward
+                        .push(next, new_g, [new_g + h, new_g], state.clone(), op.id);
                 }
             }
         }
+    }
+
+    /// Expands the backward subgoal with the smallest open `f`, if both heaps still hold a
+    /// live entry. Regressed subgoals that need an unreachable fact are dropped.
+    fn expand_backward(&mut self) {
+        let Some((subgoal, g)) = self.backward.pop_expansion() else {
+            return;
+        };
+
+        self.stats.nodes_expanded += 1;
+        self.meets.add_backward(&subgoal, g);
+
+        let task = self.task;
+        for op in &task.operators {
+            if can_regress(op, &subgoal) {
+                let previous = regress(op, &subgoal, task.num_facts());
+                let new_g = g + f64::from(op.cost);
+                if self.backward.improves(&previous, new_g) {
+                    self.open_backward(previous, new_g, &subgoal, op.id);
+                }
+            }
+        }
+    }
+
+    /// Opens the regressed subgoal `previous` at cost `g` unless it needs an unreachable
+    /// fact.
+    fn open_backward(&mut self, previous: Subgoal, g: f64, subgoal: &Subgoal, op: OpId) {
+        let h = max_fact_cost(&previous.0, &self.fact_costs);
+        if h == f64::INFINITY {
+            return;
+        }
+
+        self.stats.nodes_generated += 1;
+        self.backward
+            .push(previous, g, [g + h, g], subgoal.clone(), op);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::heuristic::HFF;
+    use crate::search::test_support::{expect_plan, make_op, make_test_task, state_of};
     use crate::search::{Astar, BiDij, BibfsUc};
-    use crate::task::{CondEffect, Fact, FactId, Task, TaskMeta, TypeHierarchy};
-    use rustc_hash::FxHashMap;
-
-    fn make_test_task(
-        num_facts: usize,
-        init_bits: &[usize],
-        goal_pos_bits: &[usize],
-        goal_neg_bits: &[usize],
-        operators: Vec<Operator>,
-    ) -> Task {
-        let mut facts = Vec::new();
-        let mut fact_index = FxHashMap::default();
-        for i in 0..num_facts {
-            let fact = Fact {
-                predicate: format!("f{}", i),
-                args: vec![],
-            };
-            let id = FactId(i);
-            fact_index.insert(fact.clone(), id);
-            facts.push(fact);
-        }
-        let mut init = State::new(num_facts);
-        for &b in init_bits {
-            init.0.set(b, true);
-        }
-        let mut goal_pos = State::new(num_facts);
-        for &b in goal_pos_bits {
-            goal_pos.0.set(b, true);
-        }
-        let mut goal_neg = State::new(num_facts);
-        for &b in goal_neg_bits {
-            goal_neg.0.set(b, true);
-        }
-        Task {
-            facts,
-            fact_index,
-            operators,
-            init,
-            goal_pos,
-            goal_neg,
-            objects: vec![],
-            types: TypeHierarchy::new(),
-            metadata: TaskMeta {
-                domain_name: "test".to_string(),
-                problem_name: "test".to_string(),
-                requirements: vec![],
-            },
-        }
-    }
-
-    fn make_op(
-        id: usize,
-        name: &str,
-        pre_pos: &[usize],
-        pre_neg: &[usize],
-        add: &[usize],
-        del: &[usize],
-        cost: u32,
-    ) -> Operator {
-        let s = |bits: &[usize], size: usize| -> State {
-            let mut state = State::new(size);
-            for &b in bits {
-                state.0.set(b, true);
-            }
-            state
-        };
-        Operator {
-            id: OpId(id),
-            name: name.to_string(),
-            pre_pos: s(pre_pos, 10),
-            pre_neg: s(pre_neg, 10),
-            add: s(add, 10),
-            del: s(del, 10),
-            conditional: vec![],
-            cost,
-        }
-    }
+    use crate::task::CondEffect;
 
     #[test]
     fn test_simple_plan_uniform_cost() {
@@ -737,10 +309,8 @@ mod tests {
         let limits = SearchLimits::default();
         let nbs_outcome = nbs.solve(&task, &limits).unwrap();
         let uc_outcome = bibfs_uc.solve(&task, &limits).unwrap();
-        let (nbs_plan, uc_plan) = match (nbs_outcome, uc_outcome) {
-            (SearchOutcome::Plan(a, _), SearchOutcome::Plan(b, _)) => (a, b),
-            _ => panic!("expected plans from both planners"),
-        };
+        let (nbs_plan, _) = expect_plan(nbs_outcome);
+        let (uc_plan, _) = expect_plan(uc_outcome);
         assert_eq!(nbs_plan.len(), uc_plan.len());
         assert_eq!(nbs_plan.steps[0].op_id, OpId(0));
         assert_eq!(nbs_plan.steps[1].op_id, OpId(1));
@@ -793,18 +363,11 @@ mod tests {
 
     #[test]
     fn test_conditional_effect_rejected() {
-        let s = |bits: &[usize], size: usize| -> State {
-            let mut state = State::new(size);
-            for &b in bits {
-                state.0.set(b, true);
-            }
-            state
-        };
         let mut op = make_op(0, "op_cond", &[0], &[], &[1], &[], 1);
         op.conditional.push(CondEffect {
-            cond_pos: s(&[0], 3),
+            cond_pos: state_of(&[0], 3),
             cond_neg: State::new(3),
-            add: s(&[2], 3),
+            add: state_of(&[2], 3),
             del: State::new(3),
         });
 
@@ -862,10 +425,8 @@ mod tests {
         let nbs_outcome = nbs.solve(&task, &limits).unwrap();
         let bidij_outcome = bidij.solve(&task, &limits).unwrap();
 
-        let (nbs_plan, bidij_plan) = match (nbs_outcome, bidij_outcome) {
-            (SearchOutcome::Plan(a, _), SearchOutcome::Plan(b, _)) => (a, b),
-            _ => panic!("expected plans from both planners"),
-        };
+        let (nbs_plan, _) = expect_plan(nbs_outcome);
+        let (bidij_plan, _) = expect_plan(bidij_outcome);
         assert_eq!(nbs_plan.cost, bidij_plan.cost);
         assert_eq!(nbs_plan.cost, 2.0);
     }
@@ -891,10 +452,8 @@ mod tests {
         let nbs_outcome = nbs.solve(&task, &limits).unwrap();
         let astar_outcome = astar.solve(&task, &limits).unwrap();
 
-        let (nbs_plan, astar_plan) = match (nbs_outcome, astar_outcome) {
-            (SearchOutcome::Plan(a, _), SearchOutcome::Plan(b, _)) => (a, b),
-            _ => panic!("expected plans from both planners"),
-        };
+        let (nbs_plan, _) = expect_plan(nbs_outcome);
+        let (astar_plan, _) = expect_plan(astar_outcome);
         assert_eq!(nbs_plan.cost, astar_plan.cost);
         assert_eq!(nbs_plan.cost, 2.0);
     }
@@ -919,10 +478,8 @@ mod tests {
         let nbs_outcome = nbs.solve(&task, &limits).unwrap();
         let astar_outcome = astar.solve(&task, &limits).unwrap();
 
-        let (nbs_plan, astar_plan) = match (nbs_outcome, astar_outcome) {
-            (SearchOutcome::Plan(a, _), SearchOutcome::Plan(b, _)) => (a, b),
-            _ => panic!("expected plans from both planners"),
-        };
+        let (nbs_plan, _) = expect_plan(nbs_outcome);
+        let (astar_plan, _) = expect_plan(astar_outcome);
         assert_eq!(nbs_plan.cost, astar_plan.cost);
         assert_eq!(nbs_plan.cost, 3.0);
         assert_eq!(nbs_plan.len(), 3);
@@ -948,14 +505,8 @@ mod tests {
         let nbs_outcome = nbs.solve(&task, &limits).unwrap();
         let bidij_outcome = bidij.solve(&task, &limits).unwrap();
 
-        let (nbs_plan, nbs_stats) = match nbs_outcome {
-            SearchOutcome::Plan(plan, stats) => (plan, stats),
-            _ => panic!("expected a plan"),
-        };
-        let (bidij_plan, bidij_stats) = match bidij_outcome {
-            SearchOutcome::Plan(plan, stats) => (plan, stats),
-            _ => panic!("expected a plan"),
-        };
+        let (nbs_plan, nbs_stats) = expect_plan(nbs_outcome);
+        let (bidij_plan, bidij_stats) = expect_plan(bidij_outcome);
 
         assert_eq!(nbs_plan.cost, bidij_plan.cost);
         assert!(nbs_stats.nodes_expanded <= bidij_stats.nodes_expanded);

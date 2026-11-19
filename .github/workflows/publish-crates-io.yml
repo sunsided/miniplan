@@ -1,0 +1,109 @@
+# Publishes a crate when release-plz pushes its tag (vX.Y.Z, or <crate>-vX.Y.Z in multi-crate repos).
+# Runs in the `crates-io` environment, which only allows v*.*.* / *-v*.*.* tags (docs/github.md).
+# crates.io trusted publishing is bound to this file name and environment: do not rename either.
+# Action refs are tags here; pin with scripts/pin-actions.py.
+name: Publish
+
+on:
+  push:
+    tags:
+      # SemVer 2.0 releases and pre-releases (v1.2.0, v1.2.0-rc.1, crate-v1.2.0, crate-v1.2.0-rc.1).
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+      - '*-v[0-9]+.[0-9]+.[0-9]+'
+      - '*-v[0-9]+.[0-9]+.[0-9]+-*'
+
+permissions: {}
+
+jobs:
+  verify:
+    name: verify tagged commit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-nextest
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo nextest run --workspace --all-features --locked
+      # Remove for binary-only crates (no library target, no doctests).
+      - run: cargo test --workspace --all-features --doc --locked
+
+  crates-io:
+    name: publish to crates.io
+    needs: verify
+    runs-on: ubuntu-latest
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/${{ steps.crate.outputs.name }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+      - name: Resolve crate and version from the tag
+        id: crate
+        run: |
+          # <crate>-vX.Y.Z first, so crate names starting with "v" are not mistaken for vX.Y.Z.
+          # Multi-crate repo where no crate keeps plain vX.Y.Z tags: delete the v[0-9]* case and
+          # the two 'v[0-9]+...' tag filters above.
+          case "$GITHUB_REF_NAME" in
+            *-v[0-9]*) name="${GITHUB_REF_NAME%-v*}"; version="${GITHUB_REF_NAME##*-v}" ;;
+            v[0-9]*)   name="miniplan"; version="${GITHUB_REF_NAME#v}" ;;
+            *) echo "::error::unexpected tag $GITHUB_REF_NAME"; exit 1 ;;
+          esac
+          actual="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r --arg n "$name" '.packages[] | select(.name == $n) | .version')"
+          if [ "$actual" != "$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match $name $actual"
+            exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Skip versions that are already on crates.io
+        id: check
+        # The first release of a crate is published by hand, and re-runs must be harmless.
+        run: |
+          status="$(curl -s -o /dev/null -w '%{http_code}' -A "$GITHUB_REPOSITORY publish workflow" \
+            "https://crates.io/api/v1/crates/$CRATE/$VERSION")"
+          if [ "$status" = 200 ]; then
+            echo "::notice::$CRATE $VERSION is already on crates.io; nothing to publish"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          CRATE: ${{ steps.crate.outputs.name }}
+          VERSION: ${{ steps.crate.outputs.version }}
+      - if: steps.check.outputs.published != 'true'
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+        id: auth
+      - name: Publish (waits for sibling crates released in the same batch)
+        if: steps.check.outputs.published != 'true'
+        # release-plz pushes one tag per crate, so dependent crates publish in parallel runs:
+        # retry while a workspace dependency's new version is not on the index yet.
+        run: |
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if cargo publish -p "$CRATE" --locked 2> publish.log; then
+              exit 0
+            fi
+            cat publish.log >&2
+            grep -qE 'failed to select a version|no matching package named' publish.log || exit 1
+            echo "::notice::dependency of $CRATE not on crates.io yet (attempt $attempt); retrying in 60s"
+            sleep 60
+          done
+          exit 1
+        env:
+          CRATE: ${{ steps.crate.outputs.name }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

@@ -1,20 +1,28 @@
+//! A* search ([`Astar`]) over complete states with a pluggable [`Heuristic`].
+
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
-use std::time::Instant;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::error::MiniplanError;
-use crate::plan::{Plan, PlanStep};
 use crate::search::Heuristic;
+use crate::search::outcome::{Budget, plan_from_ops};
 use crate::search::{
     HValue, Planner, PlannerCapabilities, SearchLimits, SearchOutcome, SearchStats,
 };
 use crate::task::{OpId, State, Task};
 
+/// An open A* node. Ordered by [`AstarNode::f_score`] only, smallest first.
 #[derive(Debug, Clone)]
 struct AstarNode {
+    /// `g + h`: path cost so far plus the heuristic estimate to the goal.
     f_score: HValue,
+    /// Path cost from the initial state to [`AstarNode::state`].
     g_score: f64,
+    /// The state this node stands for.
     state: State,
+    /// The operators leading from the initial state to [`AstarNode::state`], in order.
     path: Vec<OpId>,
 }
 
@@ -59,22 +67,67 @@ impl Ord for AstarNode {
 /// assert_eq!(planner.name(), "astar");
 /// ```
 pub struct Astar {
+    /// Estimates the cost from a state to the goal; the `h` in `f = g + h`.
     heuristic: Box<dyn Heuristic>,
 }
 
 impl Astar {
     /// Create a new A* planner with the given heuristic.
+    #[must_use]
     pub fn new(heuristic: Box<dyn Heuristic>) -> Self {
         Astar { heuristic }
+    }
+
+    /// The successors of `node` that are neither closed nor reached more cheaply before,
+    /// recording their new `g` in `g_scores`.
+    fn successors(
+        &self,
+        task: &Task,
+        node: &AstarNode,
+        closed: &FxHashSet<State>,
+        g_scores: &mut FxHashMap<State, f64>,
+    ) -> Vec<AstarNode> {
+        let mut successors = Vec::new();
+        for op in &task.operators {
+            if !node.state.applicable(op) {
+                continue;
+            }
+
+            let next = node.state.apply(op);
+            if closed.contains(&next) {
+                continue;
+            }
+
+            let new_g = node.g_score + f64::from(op.cost);
+            if g_scores
+                .get(&next)
+                .is_some_and(|&existing_g| new_g >= existing_g)
+            {
+                continue;
+            }
+
+            g_scores.insert(next.clone(), new_g);
+            let h = self.heuristic.estimate(task, &next);
+            let mut path = node.path.clone();
+            path.push(op.id);
+            successors.push(AstarNode {
+                f_score: HValue(new_g + h.0),
+                g_score: new_g,
+                state: next,
+                path,
+            });
+        }
+
+        successors
     }
 }
 
 impl Planner for Astar {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "astar"
     }
 
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         "A* search with pluggable heuristic"
     }
 
@@ -85,21 +138,20 @@ impl Planner for Astar {
             | PlannerCapabilities::ACTION_COSTS
     }
 
+    /// Runs A* on `task`. Never fails.
     fn solve(
         &mut self,
         task: &Task,
         limits: &SearchLimits,
     ) -> Result<SearchOutcome, MiniplanError> {
-        let start = Instant::now();
+        let budget = Budget::start(limits);
         let mut stats = SearchStats::default();
-
         let mut open = BinaryHeap::new();
-        let mut g_scores = rustc_hash::FxHashMap::default();
-        let mut closed = rustc_hash::FxHashSet::default();
+        let mut g_scores = FxHashMap::default();
+        let mut closed = FxHashSet::default();
 
-        let h = self.heuristic.estimate(task, &task.init);
         open.push(AstarNode {
-            f_score: h,
+            f_score: self.heuristic.estimate(task, &task.init),
             g_score: 0.0,
             state: task.init.clone(),
             path: Vec::new(),
@@ -107,83 +159,25 @@ impl Planner for Astar {
         g_scores.insert(task.init.clone(), 0.0);
 
         while let Some(node) = open.pop() {
-            if closed.contains(&node.state) {
+            if !closed.insert(node.state.clone()) {
                 continue;
             }
-            closed.insert(node.state.clone());
+
             stats.nodes_expanded += 1;
-
             if node.state.satisfies(&task.goal_pos, &task.goal_neg) {
-                let plan = build_plan(&node.path, task);
-                stats.plan_cost = plan.cost;
-                stats.plan_length = plan.len();
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::Plan(plan, stats));
+                return Ok(budget.plan(plan_from_ops(&node.path, task), stats));
             }
 
-            if let Some(max_nodes) = limits.node_budget
-                && stats.nodes_expanded >= max_nodes
-            {
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::LimitReached(stats));
+            if budget.exhausted(&stats) {
+                return Ok(budget.limit_reached(stats));
             }
 
-            if let Some(timeout) = limits.time_budget
-                && start.elapsed() >= timeout
-            {
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::LimitReached(stats));
-            }
-
-            for op in &task.operators {
-                if node.state.applicable(op) {
-                    let next = node.state.apply(op);
-                    if closed.contains(&next) {
-                        continue;
-                    }
-
-                    let new_g = node.g_score + op.cost as f64;
-                    let dominated = if let Some(&existing_g) = g_scores.get(&next) {
-                        new_g >= existing_g
-                    } else {
-                        false
-                    };
-
-                    if !dominated {
-                        g_scores.insert(next.clone(), new_g);
-                        stats.nodes_generated += 1;
-                        let h = self.heuristic.estimate(task, &next);
-                        let f = HValue(new_g + h.0);
-                        let mut new_path = node.path.clone();
-                        new_path.push(op.id);
-                        open.push(AstarNode {
-                            f_score: f,
-                            g_score: new_g,
-                            state: next,
-                            path: new_path,
-                        });
-                    }
-                }
+            for successor in self.successors(task, &node, &closed, &mut g_scores) {
+                stats.nodes_generated += 1;
+                open.push(successor);
             }
         }
 
-        stats.elapsed = start.elapsed();
-        Ok(SearchOutcome::Unsolvable(stats))
+        Ok(budget.unsolvable(stats))
     }
-}
-
-fn build_plan(path: &[OpId], task: &Task) -> Plan {
-    let mut plan = Plan::new();
-    let mut total_cost = 0.0;
-    for &op_id in path {
-        if let Some(op) = task.operators.get(op_id.0) {
-            plan.steps.push(PlanStep {
-                op_id,
-                op_name: op.name.clone(),
-            });
-            total_cost += op.cost as f64;
-        }
-    }
-    plan.cost = total_cost;
-    plan
 }

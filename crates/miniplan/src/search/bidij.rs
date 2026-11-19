@@ -1,74 +1,42 @@
-// TODO(shared): factor regression helpers (is_relevant, is_consistent,
-//               regress_subgoal) into search/regression.rs so all three
-//               bidirectional planners can reuse them.
+//! Bidirectional Dijkstra ([`BiDij`]): uniform-cost search from both ends at once.
+//!
+//! The forward side runs Dijkstra over complete states from the initial state, the backward
+//! side runs Dijkstra over [`Subgoal`]s regressed from the goal. Each step expands the side
+//! with the smaller open `g`, and a [`MeetIndex`] records the cheapest forward state that
+//! satisfies a backward subgoal.
+//!
+//! ```mermaid
+//! flowchart TD
+//!     limits{budget used up?} -->|yes| limit[LimitReached]
+//!     limits -->|no| bound{"g_fwd + g_bwd >= best meet?"}
+//!     bound -->|yes| plan[Plan]
+//!     bound -->|no| done{forward exhausted?}
+//!     done -->|"yes, meet"| plan
+//!     done -->|"yes, no meet"| unsolvable[Unsolvable]
+//!     done -->|no| side{"g_fwd <= g_bwd?"}
+//!     side -->|yes| fwd[expand forward]
+//!     side -->|no| bwd[expand backward]
+//!     fwd --> limits
+//!     bwd --> limits
+//! ```
+
 // TODO(perf): per-FactId bucket index over closed_other to avoid O(|closed|)
 //             meet scans (inherited from bibfs-uc).
 
-use std::cmp::Ordering;
 use std::collections::BinaryHeap;
-use std::time::Instant;
+use std::hash::Hash;
+use std::mem;
 
-use fixedbitset::FixedBitSet;
 use rustc_hash::FxHashMap;
 
 use crate::error::MiniplanError;
-use crate::plan::{Plan, PlanStep};
+use crate::plan::Plan;
+use crate::search::meet::MeetIndex;
+use crate::search::open_list::{OpenEntry, prefer_forward};
+use crate::search::outcome::{Budget, ParentMap, ROOT_OP, reject_conditional_effects};
+use crate::search::regression::{Subgoal, can_regress, regress};
 use crate::search::{Planner, PlannerCapabilities, SearchLimits, SearchOutcome, SearchStats};
-use crate::task::{OpId, Operator, State, Task};
-
-type SubgoalKey = (State, State);
-
-#[derive(Clone)]
-struct ForwardNode {
-    g: f64,
-    state: State,
-}
-
-impl PartialEq for ForwardNode {
-    fn eq(&self, other: &Self) -> bool {
-        self.g == other.g
-    }
-}
-
-impl Eq for ForwardNode {}
-
-impl PartialOrd for ForwardNode {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for ForwardNode {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.g.partial_cmp(&self.g).unwrap_or(Ordering::Equal)
-    }
-}
-
-#[derive(Clone)]
-struct BackwardNode {
-    g: f64,
-    subgoal: SubgoalKey,
-}
-
-impl PartialEq for BackwardNode {
-    fn eq(&self, other: &Self) -> bool {
-        self.g == other.g
-    }
-}
-
-impl Eq for BackwardNode {}
-
-impl PartialOrd for BackwardNode {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for BackwardNode {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.g.partial_cmp(&self.g).unwrap_or(Ordering::Equal)
-    }
-}
+use crate::task::{OpId, State, Task};
 
 /// Bidirectional Dijkstra's algorithm (cost-aware).
 ///
@@ -89,17 +57,18 @@ pub struct BiDij {}
 
 impl BiDij {
     /// Create a new bidirectional Dijkstra planner.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 }
 
 impl Planner for BiDij {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "bidij"
     }
 
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         "Bidirectional Dijkstra (cost-aware)"
     }
 
@@ -109,420 +78,253 @@ impl Planner for BiDij {
             | PlannerCapabilities::ACTION_COSTS
     }
 
+    /// Runs bidirectional Dijkstra on `task`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MiniplanError::UnsupportedConditionalEffects`] if any operator has a
+    /// conditional effect, since regression through them is not supported.
     fn solve(
         &mut self,
         task: &Task,
         limits: &SearchLimits,
     ) -> Result<SearchOutcome, MiniplanError> {
-        let start = Instant::now();
-        let mut stats = SearchStats::default();
-
-        for op in &task.operators {
-            if !op.conditional.is_empty() {
-                return Err(MiniplanError::UnsupportedConditionalEffects);
-            }
-        }
+        let budget = Budget::start(limits);
+        reject_conditional_effects(task)?;
 
         if task.init.satisfies(&task.goal_pos, &task.goal_neg) {
-            stats.elapsed = start.elapsed();
-            return Ok(SearchOutcome::Plan(Plan::new(), stats));
+            return Ok(budget.plan(Plan::new(), SearchStats::default()));
         }
 
-        let num_facts = task.num_facts();
+        Ok(Search::new(task, budget).run())
+    }
+}
 
-        // Forward arena + index
-        let mut forward_entries: Vec<(State, f64)> = Vec::new();
-        let mut forward_by_fact: Vec<Vec<u32>> = vec![Vec::new(); num_facts];
+/// The state of one bidirectional Dijkstra run.
+struct Search<'a> {
+    /// The task being solved.
+    task: &'a Task,
+    /// Limits and clock of this run.
+    budget: Budget<'a>,
+    /// Counters reported with the outcome.
+    stats: SearchStats,
+    /// Dijkstra over complete states, rooted at the initial state.
+    forward: DijkstraSide<State>,
+    /// Dijkstra over subgoals, rooted at the goal.
+    backward: DijkstraSide<Subgoal>,
+    /// Expanded nodes of both sides and the cheapest meet so far.
+    meets: MeetIndex,
+}
 
-        // Backward arena + index
-        let mut backward_entries: Vec<(SubgoalKey, f64)> = Vec::new();
-        let mut backward_by_pos_fact: Vec<Vec<u32>> = vec![Vec::new(); num_facts];
-        let mut backward_empty_pos: Vec<u32> = Vec::new();
+impl<'a> Search<'a> {
+    /// Opens both search roots: the initial state forward and the goal backward.
+    fn new(task: &'a Task, budget: Budget<'a>) -> Self {
+        let goal = (task.goal_pos.clone(), task.goal_neg.clone());
 
-        // Scratch dedup bitset for forward meet scan
-        let mut scratch_back_seen = FixedBitSet::with_capacity(0);
+        Self {
+            task,
+            budget,
+            stats: SearchStats::default(),
+            forward: DijkstraSide::new(task.init.clone()),
+            backward: DijkstraSide::new(goal),
+            meets: MeetIndex::new(task.num_facts()),
+        }
+    }
 
-        let mut forward_open: BinaryHeap<ForwardNode> = BinaryHeap::new();
-        let mut forward_g: FxHashMap<State, f64> = FxHashMap::default();
-        let mut forward_parent: FxHashMap<State, (Option<State>, OpId)> = FxHashMap::default();
-
-        forward_open.push(ForwardNode {
-            g: 0.0,
-            state: task.init.clone(),
-        });
-        forward_g.insert(task.init.clone(), 0.0);
-        forward_parent.insert(task.init.clone(), (None, OpId(usize::MAX)));
-
-        let init_subgoal = (task.goal_pos.clone(), task.goal_neg.clone());
-        let mut backward_open: BinaryHeap<BackwardNode> = BinaryHeap::new();
-        let mut backward_g: FxHashMap<SubgoalKey, f64> = FxHashMap::default();
-        let mut backward_parent: FxHashMap<SubgoalKey, (Option<SubgoalKey>, OpId)> =
-            FxHashMap::default();
-
-        backward_open.push(BackwardNode {
-            g: 0.0,
-            subgoal: init_subgoal.clone(),
-        });
-        backward_g.insert(init_subgoal.clone(), 0.0);
-        backward_parent.insert(init_subgoal, (None, OpId(usize::MAX)));
-
-        let mut best_meet: Option<(State, SubgoalKey, f64)> = None;
-
+    /// Expands one side at a time until a limit, the optimal meet or exhaustion ends the
+    /// search.
+    fn run(mut self) -> SearchOutcome {
         loop {
-            if let Some(max_nodes) = limits.node_budget
-                && stats.nodes_expanded >= max_nodes
-            {
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::LimitReached(stats));
-            }
-            if let Some(timeout) = limits.time_budget
-                && start.elapsed() >= timeout
-            {
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::LimitReached(stats));
+            if self.budget.exhausted(&self.stats) {
+                return self.budget.limit_reached(self.stats);
             }
 
-            let forward_top_g = forward_open.peek().map(|n| n.g);
-            let backward_top_g = backward_open.peek().map(|n| n.g);
-
-            // Termination check
-            if let (Some(fg), Some(bg)) = (forward_top_g, backward_top_g)
-                && let Some((_, _, meet_cost)) = best_meet
-                && fg + bg >= meet_cost
-            {
-                stats.elapsed = start.elapsed();
-                let plan = reconstruct_plan_from_meet(
-                    &best_meet.unwrap(),
-                    &forward_parent,
-                    &backward_parent,
-                    task,
-                );
-                stats.plan_cost = plan.cost;
-                stats.plan_length = plan.len();
-                return Ok(SearchOutcome::Plan(plan, stats));
+            if let Some(outcome) = self.check_finished() {
+                return outcome;
             }
 
-            let forward_empty = forward_open.is_empty();
-            let backward_empty = backward_open.is_empty();
-
-            if forward_empty && backward_empty {
-                stats.elapsed = start.elapsed();
-                if let Some((_, _, _)) = best_meet {
-                    let plan = reconstruct_plan_from_meet(
-                        &best_meet.unwrap(),
-                        &forward_parent,
-                        &backward_parent,
-                        task,
-                    );
-                    stats.plan_cost = plan.cost;
-                    stats.plan_length = plan.len();
-                    return Ok(SearchOutcome::Plan(plan, stats));
-                }
-                return Ok(SearchOutcome::Unsolvable(stats));
-            }
-
-            // Pick side to expand: smaller g wins; if one empty, expand other
-            let expand_forward = match (forward_top_g, backward_top_g) {
-                (None, _) => false,
-                (_, None) => true,
-                (Some(fg), Some(bg)) => fg <= bg,
-            };
-
-            if expand_forward {
-                let node = forward_open.pop().unwrap();
-                let state = node.state.clone();
-                if node.g > *forward_g.get(&state).unwrap_or(&f64::INFINITY) {
-                    continue;
-                }
-                stats.nodes_expanded += 1;
-
-                let g = node.g;
-
-                // Append to forward arena + index
-                let fwd_idx = forward_entries.len() as u32;
-                forward_entries.push((state.clone(), g));
-                for f in state.0.ones() {
-                    forward_by_fact[f].push(fwd_idx);
-                }
-
-                // Grow scratch bitset to current backward arena size
-                scratch_back_seen.grow(backward_entries.len());
-                scratch_back_seen.clear();
-
-                // Check meet with backward arena via per-fact index
-                for f in state.0.ones() {
-                    for &idx in &backward_by_pos_fact[f] {
-                        if !scratch_back_seen.put(idx as usize) {
-                            let (sg, sg_g) = &backward_entries[idx as usize];
-                            if state.satisfies(&sg.0, &sg.1) {
-                                let total = g + sg_g;
-                                if best_meet.as_ref().is_none_or(|(_, _, c)| total < *c) {
-                                    best_meet = Some((state.clone(), sg.clone(), total));
-                                }
-                            }
-                        }
-                    }
-                }
-                for &idx in &backward_empty_pos {
-                    if !scratch_back_seen.put(idx as usize) {
-                        let (sg, sg_g) = &backward_entries[idx as usize];
-                        if state.satisfies(&sg.0, &sg.1) {
-                            let total = g + sg_g;
-                            if best_meet.as_ref().is_none_or(|(_, _, c)| total < *c) {
-                                best_meet = Some((state.clone(), sg.clone(), total));
-                            }
-                        }
-                    }
-                }
-
-                for op in &task.operators {
-                    if state.applicable(op) {
-                        let next = state.apply(op);
-                        let new_g = g + op.cost as f64;
-                        if new_g < *forward_g.get(&next).unwrap_or(&f64::INFINITY) {
-                            forward_g.insert(next.clone(), new_g);
-                            forward_parent.insert(next.clone(), (Some(state.clone()), op.id));
-                            stats.nodes_generated += 1;
-                            forward_open.push(ForwardNode {
-                                g: new_g,
-                                state: next,
-                            });
-                        }
-                    }
-                }
+            if prefer_forward(self.forward.min_g(), self.backward.min_g()) {
+                self.expand_forward();
             } else {
-                let node = backward_open.pop().unwrap();
-                let subgoal = node.subgoal.clone();
-                if node.g > *backward_g.get(&subgoal).unwrap_or(&f64::INFINITY) {
-                    continue;
+                self.expand_backward();
+            }
+        }
+    }
+
+    /// Returns the final outcome once the search is decided, or `None` to keep going.
+    ///
+    /// The search is decided when the open minima of both sides cannot beat the best meet,
+    /// when both sides are empty, or when the forward side is exhausted after the backward
+    /// root was expanded.
+    fn check_finished(&mut self) -> Option<SearchOutcome> {
+        if let (Some(forward_g), Some(backward_g)) = (self.forward.min_g(), self.backward.min_g())
+            && let Some(meet) = self.meets.best()
+            && forward_g + backward_g >= meet.cost
+        {
+            return Some(self.finish());
+        }
+
+        let forward_empty = self.forward.is_empty();
+        let backward_empty = self.backward.is_empty();
+
+        // Forward Dijkstra has expanded every reachable state, and the backward root (the
+        // goal itself, g = 0) has been matched against each of them, so the best meet is
+        // final. Backward regression alone may never run dry: it keeps producing new,
+        // possibly contradictory subgoals.
+        let forward_exhausted = forward_empty && self.meets.has_backward();
+
+        if (forward_empty && backward_empty) || forward_exhausted {
+            return Some(self.finish());
+        }
+
+        None
+    }
+
+    /// Ends the search with the best meet's plan, or as unsolvable without one.
+    fn finish(&mut self) -> SearchOutcome {
+        let stats = mem::take(&mut self.stats);
+        match self.meets.best() {
+            Some(meet) => {
+                let plan = meet.plan(&self.forward.parents, &self.backward.parents, self.task);
+                self.budget.plan(plan, stats)
+            }
+            None => self.budget.unsolvable(stats),
+        }
+    }
+
+    /// Expands the cheapest open forward state, unless its entry turns out to be outdated.
+    fn expand_forward(&mut self) {
+        let Some((state, g)) = self.forward.pop_settled() else {
+            return;
+        };
+
+        self.stats.nodes_expanded += 1;
+        self.meets.add_forward(&state, g);
+
+        let task = self.task;
+        for op in &task.operators {
+            if state.applicable(op) {
+                let next = state.apply(op);
+                let new_g = g + f64::from(op.cost);
+                if self.forward.relax(next, new_g, &state, op.id) {
+                    self.stats.nodes_generated += 1;
                 }
-                stats.nodes_expanded += 1;
+            }
+        }
+    }
 
-                let g = node.g;
-                let (g_pos, g_neg) = node.subgoal;
+    /// Expands the cheapest open backward subgoal, unless its entry turns out to be
+    /// outdated.
+    fn expand_backward(&mut self) {
+        let Some((subgoal, g)) = self.backward.pop_settled() else {
+            return;
+        };
 
-                // Append to backward arena + index
-                let bwd_idx = backward_entries.len() as u32;
-                backward_entries.push(((g_pos.clone(), g_neg.clone()), g));
-                let g_pos_ones: Vec<_> = g_pos.0.ones().collect();
-                if g_pos_ones.is_empty() {
-                    backward_empty_pos.push(bwd_idx);
-                } else {
-                    for &f in &g_pos_ones {
-                        backward_by_pos_fact[f].push(bwd_idx);
-                    }
-                }
+        self.stats.nodes_expanded += 1;
+        self.meets.add_backward(&subgoal, g);
 
-                // Check meet with forward arena via per-fact index
-                if g_pos_ones.is_empty() {
-                    for (f_state, f_g) in &forward_entries {
-                        if f_state.satisfies(&g_pos, &g_neg) {
-                            let total = f_g + g;
-                            if best_meet.as_ref().is_none_or(|(_, _, c)| total < *c) {
-                                best_meet =
-                                    Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
-                            }
-                        }
-                    }
-                } else {
-                    let rarest = g_pos_ones
-                        .iter()
-                        .min_by_key(|&&f| forward_by_fact[f].len())
-                        .copied()
-                        .unwrap();
-                    for &idx in &forward_by_fact[rarest] {
-                        let (f_state, f_g) = &forward_entries[idx as usize];
-                        if f_state.satisfies(&g_pos, &g_neg) {
-                            let total = f_g + g;
-                            if best_meet.as_ref().is_none_or(|(_, _, c)| total < *c) {
-                                best_meet =
-                                    Some((f_state.clone(), (g_pos.clone(), g_neg.clone()), total));
-                            }
-                        }
-                    }
-                }
-
-                for op in &task.operators {
-                    if is_relevant(op, &g_pos, &g_neg) && is_consistent(op, &g_pos, &g_neg) {
-                        let mut g_pos_new = State::new(num_facts);
-                        let mut g_neg_new = State::new(num_facts);
-                        for bit in g_pos.0.ones() {
-                            if !op.add.0.contains(bit) {
-                                g_pos_new.0.set(bit, true);
-                            }
-                        }
-                        for bit in op.pre_pos.0.ones() {
-                            g_pos_new.0.set(bit, true);
-                        }
-                        for bit in g_neg.0.ones() {
-                            if !op.del.0.contains(bit) {
-                                g_neg_new.0.set(bit, true);
-                            }
-                        }
-                        for bit in op.pre_neg.0.ones() {
-                            g_neg_new.0.set(bit, true);
-                        }
-                        let new_sg = (g_pos_new, g_neg_new);
-                        let new_g = g + op.cost as f64;
-                        if new_g < *backward_g.get(&new_sg).unwrap_or(&f64::INFINITY) {
-                            backward_g.insert(new_sg.clone(), new_g);
-                            backward_parent.insert(
-                                new_sg.clone(),
-                                (Some((g_pos.clone(), g_neg.clone())), op.id),
-                            );
-                            stats.nodes_generated += 1;
-                            backward_open.push(BackwardNode {
-                                g: new_g,
-                                subgoal: new_sg,
-                            });
-                        }
-                    }
+        let task = self.task;
+        for op in &task.operators {
+            if can_regress(op, &subgoal) {
+                let previous = regress(op, &subgoal, task.num_facts());
+                let new_g = g + f64::from(op.cost);
+                if self.backward.relax(previous, new_g, &subgoal, op.id) {
+                    self.stats.nodes_generated += 1;
                 }
             }
         }
     }
 }
 
-fn is_relevant(op: &Operator, g_pos: &State, g_neg: &State) -> bool {
-    op.add.0.ones().any(|b| g_pos.0.contains(b)) || op.del.0.ones().any(|b| g_neg.0.contains(b))
+/// One direction of the search: a Dijkstra open list over nodes of type `T`.
+///
+/// Entries are never removed when a node's cost improves; outdated ones are skipped when
+/// popped.
+struct DijkstraSide<T> {
+    /// Open entries ordered by `g`.
+    open: BinaryHeap<OpenEntry<T>>,
+    /// Best known path cost per node.
+    g: FxHashMap<T, f64>,
+    /// Parent links of the search tree, for plan reconstruction.
+    parents: ParentMap<T>,
 }
 
-fn is_consistent(op: &Operator, g_pos: &State, g_neg: &State) -> bool {
-    !op.del.0.ones().any(|b| g_pos.0.contains(b)) && !op.add.0.ones().any(|b| g_neg.0.contains(b))
-}
+impl<T: Clone + Eq + Hash> DijkstraSide<T> {
+    /// Opens `root` at cost `0`.
+    fn new(root: T) -> Self {
+        let mut side = Self {
+            open: BinaryHeap::new(),
+            g: FxHashMap::default(),
+            parents: ParentMap::default(),
+        };
+        side.push(root.clone(), 0.0);
+        side.g.insert(root.clone(), 0.0);
+        side.parents.insert(root, (None, ROOT_OP));
 
-fn build_plan_from_ops(ops: &[OpId], task: &Task) -> Plan {
-    let mut plan = Plan::new();
-    let mut total_cost = 0.0;
-    for &op_id in ops {
-        if let Some(op) = task.operators.get(op_id.0) {
-            plan.steps.push(PlanStep {
-                op_id,
-                op_name: op.name.clone(),
-            });
-            total_cost += op.cost as f64;
-        }
-    }
-    plan.cost = total_cost;
-    plan
-}
-
-fn reconstruct_plan_from_meet(
-    meet: &(State, SubgoalKey, f64),
-    forward_parent: &FxHashMap<State, (Option<State>, OpId)>,
-    backward_parent: &FxHashMap<SubgoalKey, (Option<SubgoalKey>, OpId)>,
-    task: &Task,
-) -> Plan {
-    let (meet_state, meet_subgoal, _total) = meet;
-
-    let mut forward_ops: Vec<OpId> = Vec::new();
-    let mut current = meet_state.clone();
-    while let Some((parent, op)) = forward_parent.get(&current) {
-        if op.0 == usize::MAX {
-            break;
-        }
-        forward_ops.push(*op);
-        current = parent.clone().unwrap();
-    }
-    forward_ops.reverse();
-
-    let mut backward_ops: Vec<OpId> = Vec::new();
-    let mut sg_current = meet_subgoal.clone();
-    while let Some((parent, op)) = backward_parent.get(&sg_current) {
-        if op.0 == usize::MAX {
-            break;
-        }
-        backward_ops.push(*op);
-        sg_current = parent.clone().unwrap();
+        side
     }
 
-    let mut all_ops = forward_ops;
-    all_ops.extend(backward_ops);
-    build_plan_from_ops(&all_ops, task)
+    /// The smallest open `g`, outdated entries included.
+    fn min_g(&self) -> Option<f64> {
+        self.open.peek().map(|entry| entry.g)
+    }
+
+    /// Returns `true` if no entry is open.
+    fn is_empty(&self) -> bool {
+        self.open.is_empty()
+    }
+
+    /// Pops the cheapest entry and returns its node and `g`.
+    ///
+    /// Returns `None` if the list is empty or the entry is outdated, because a cheaper path
+    /// to its node was found after it was pushed.
+    fn pop_settled(&mut self) -> Option<(T, f64)> {
+        let entry = self.open.pop()?;
+        if entry.g > self.best_g(&entry.node) {
+            return None;
+        }
+
+        Some((entry.node, entry.g))
+    }
+
+    /// Opens `node` at cost `g`, reached from `parent` through `op`, if that is cheaper
+    /// than its best known cost. Returns `true` if it was.
+    fn relax(&mut self, node: T, g: f64, parent: &T, op: OpId) -> bool {
+        if g < self.best_g(&node) {
+            self.g.insert(node.clone(), g);
+            self.parents
+                .insert(node.clone(), (Some(parent.clone()), op));
+            self.push(node, g);
+
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Best known path cost of `node`, or infinity if it was never opened.
+    fn best_g(&self, node: &T) -> f64 {
+        self.g.get(node).copied().unwrap_or(f64::INFINITY)
+    }
+
+    /// Pushes an open entry for `node` at cost `g`.
+    fn push(&mut self, node: T, g: f64) {
+        self.open.push(OpenEntry {
+            priority: g,
+            g,
+            node,
+            epoch: 0,
+        });
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::heuristic::HFF;
+    use crate::search::test_support::{expect_plan, make_op, make_test_task, state_of};
     use crate::search::{Astar, BibfsUc};
-    use crate::task::{CondEffect, Fact, FactId, Task, TaskMeta, TypeHierarchy};
-    use rustc_hash::FxHashMap;
-
-    fn make_test_task(
-        num_facts: usize,
-        init_bits: &[usize],
-        goal_pos_bits: &[usize],
-        goal_neg_bits: &[usize],
-        operators: Vec<Operator>,
-    ) -> Task {
-        let mut facts = Vec::new();
-        let mut fact_index = FxHashMap::default();
-        for i in 0..num_facts {
-            let fact = Fact {
-                predicate: format!("f{}", i),
-                args: vec![],
-            };
-            let id = FactId(i);
-            fact_index.insert(fact.clone(), id);
-            facts.push(fact);
-        }
-        let mut init = State::new(num_facts);
-        for &b in init_bits {
-            init.0.set(b, true);
-        }
-        let mut goal_pos = State::new(num_facts);
-        for &b in goal_pos_bits {
-            goal_pos.0.set(b, true);
-        }
-        let mut goal_neg = State::new(num_facts);
-        for &b in goal_neg_bits {
-            goal_neg.0.set(b, true);
-        }
-        Task {
-            facts,
-            fact_index,
-            operators,
-            init,
-            goal_pos,
-            goal_neg,
-            objects: vec![],
-            types: TypeHierarchy::new(),
-            metadata: TaskMeta {
-                domain_name: "test".to_string(),
-                problem_name: "test".to_string(),
-                requirements: vec![],
-            },
-        }
-    }
-
-    fn make_op(
-        id: usize,
-        name: &str,
-        pre_pos: &[usize],
-        pre_neg: &[usize],
-        add: &[usize],
-        del: &[usize],
-        cost: u32,
-    ) -> Operator {
-        let s = |bits: &[usize], size: usize| -> State {
-            let mut state = State::new(size);
-            for &b in bits {
-                state.0.set(b, true);
-            }
-            state
-        };
-        Operator {
-            id: OpId(id),
-            name: name.to_string(),
-            pre_pos: s(pre_pos, 10),
-            pre_neg: s(pre_neg, 10),
-            add: s(add, 10),
-            del: s(del, 10),
-            conditional: vec![],
-            cost,
-        }
-    }
+    use crate::task::CondEffect;
 
     #[test]
     fn test_simple_plan_uniform_cost() {
@@ -542,10 +344,8 @@ mod tests {
         let limits = SearchLimits::default();
         let bidij_outcome = bidij.solve(&task, &limits).unwrap();
         let uc_outcome = bibfs_uc.solve(&task, &limits).unwrap();
-        let (bidij_plan, uc_plan) = match (bidij_outcome, uc_outcome) {
-            (SearchOutcome::Plan(a, _), SearchOutcome::Plan(b, _)) => (a, b),
-            _ => panic!("expected plans from both planners"),
-        };
+        let (bidij_plan, _) = expect_plan(bidij_outcome);
+        let (uc_plan, _) = expect_plan(uc_outcome);
         assert_eq!(bidij_plan.len(), uc_plan.len());
         assert_eq!(bidij_plan.steps[0].op_id, OpId(0));
         assert_eq!(bidij_plan.steps[1].op_id, OpId(1));
@@ -606,18 +406,11 @@ mod tests {
 
     #[test]
     fn test_conditional_effect_rejected() {
-        let s = |bits: &[usize], size: usize| -> State {
-            let mut state = State::new(size);
-            for &b in bits {
-                state.0.set(b, true);
-            }
-            state
-        };
         let mut op = make_op(0, "op_cond", &[0], &[], &[1], &[], 1);
         op.conditional.push(CondEffect {
-            cond_pos: s(&[0], 3),
+            cond_pos: state_of(&[0], 3),
             cond_neg: State::new(3),
-            add: s(&[2], 3),
+            add: state_of(&[2], 3),
             del: State::new(3),
         });
 
@@ -676,10 +469,8 @@ mod tests {
         let bidij_outcome = bidij.solve(&task, &limits).unwrap();
         let astar_outcome = astar.solve(&task, &limits).unwrap();
 
-        let (bidij_plan, astar_plan) = match (bidij_outcome, astar_outcome) {
-            (SearchOutcome::Plan(a, _), SearchOutcome::Plan(b, _)) => (a, b),
-            _ => panic!("expected plans from both planners"),
-        };
+        let (bidij_plan, _) = expect_plan(bidij_outcome);
+        let (astar_plan, _) = expect_plan(astar_outcome);
         assert_eq!(bidij_plan.cost, astar_plan.cost);
         assert_eq!(bidij_plan.cost, 2.0);
     }
@@ -745,10 +536,8 @@ mod tests {
         let bidij_outcome = bidij.solve(&task, &limits).unwrap();
         let astar_outcome = astar.solve(&task, &limits).unwrap();
 
-        let (bidij_plan, astar_plan) = match (bidij_outcome, astar_outcome) {
-            (SearchOutcome::Plan(a, _), SearchOutcome::Plan(b, _)) => (a, b),
-            _ => panic!("expected plans from both planners"),
-        };
+        let (bidij_plan, _) = expect_plan(bidij_outcome);
+        let (astar_plan, _) = expect_plan(astar_outcome);
         assert_eq!(bidij_plan.cost, astar_plan.cost);
         assert_eq!(bidij_plan.cost, 3.0);
         assert_eq!(bidij_plan.len(), 3);

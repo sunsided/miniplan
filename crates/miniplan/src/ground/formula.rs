@@ -1,48 +1,62 @@
-use pddl::{AtomicFormula, FunctionTerm, GoalDefinition, Literal, Term};
+//! Goal formulas to disjunctive normal form, and literal sets to fact bitsets.
+//!
+//! [`walk_goal_definition`] ignores the variables bound by `exists` and
+//! `forall` (it drops them and walks the body under the outer bindings). For
+//! quantifier-aware evaluation of derived-predicate bodies, use
+//! [`derived::eval_gd`](crate::ground::derived::eval_gd) instead.
+
+use pddl::{AtomicFormula, FunctionTerm, GoalDefinition, Literal, PredicateAtomicFormula, Term};
 
 use crate::error::MiniplanError;
+use crate::ground::types::Binding;
 use crate::task::{Fact, State, Task};
 
-// NOTE: walk_goal_definition ignores Exists/ForAll bound variables (drops them
-// and walks the body under outer bindings).  For quantifier-aware evaluation
-// of derived-predicate bodies, use derived::eval_gd instead.
+/// A grounded atom as `(predicate name, argument names)`.
+pub(super) type Atom = (String, Vec<String>);
 
-#[derive(Debug, Clone)]
-pub struct LiteralSet {
-    pub pos: Vec<(String, Vec<String>)>,
-    pub neg: Vec<(String, Vec<String>)>,
+/// One conjunction of a formula in disjunctive normal form.
+///
+/// A goal or precondition is a `Vec<LiteralSet>`: a disjunction of these
+/// conjunctions. An empty vector is unsatisfiable (`false`), a set with both
+/// lists empty is trivially true.
+#[derive(Debug, Clone, Default)]
+pub(super) struct LiteralSet {
+    /// Atoms that must hold.
+    pub pos: Vec<Atom>,
+    /// Atoms that must not hold.
+    pub neg: Vec<Atom>,
 }
 
-type LiteralPair = (Vec<(String, Vec<String>)>, Vec<(String, Vec<String>)>);
-
-pub fn walk_goal_definition(
+/// Converts a goal definition under `bindings` into disjunctive normal form.
+///
+/// `and` multiplies out its operands, `or` concatenates them. Equalities are
+/// decided statically: a positive equality is dropped (always true), a negated
+/// one is false when both sides ground to the same name. Quantifiers are not
+/// expanded (see the module docs).
+///
+/// # Errors
+///
+/// Returns [`MiniplanError::Ground`] for a negated non-atomic formula, an
+/// `imply`, or a numeric comparison anywhere in `gd`.
+pub(super) fn walk_goal_definition(
     gd: &GoalDefinition,
-    bindings: &[(String, String)],
+    bindings: &[Binding],
 ) -> Result<Vec<LiteralSet>, MiniplanError> {
     match gd {
-        GoalDefinition::AtomicFormula(af) => walk_atomic_formula(af, bindings),
-        GoalDefinition::Literal(lit) => walk_literal(lit, bindings),
-        GoalDefinition::And(gds) => {
-            let mut results: Vec<LiteralSet> = vec![LiteralSet {
-                pos: Vec::new(),
-                neg: Vec::new(),
-            }];
-            for g in gds.iter() {
-                let sub = walk_goal_definition(g, bindings)?;
-                results = cartesian_product_dnf(&results, &sub);
-            }
-            Ok(results)
-        }
+        GoalDefinition::AtomicFormula(af) => Ok(vec![walk_atomic_formula(af, bindings)]),
+        GoalDefinition::Literal(lit) => Ok(walk_literal(lit, bindings)),
+        GoalDefinition::And(gds) => walk_conjunction(gds, bindings),
         GoalDefinition::Or(gds) => {
             let mut all = Vec::new();
-            for g in gds.iter() {
+            for g in gds {
                 all.extend(walk_goal_definition(g, bindings)?);
             }
+
             Ok(all)
         }
         GoalDefinition::Not(inner) => match inner.as_ref() {
-            GoalDefinition::AtomicFormula(af) => walk_negated_atomic_formula(af, bindings),
-            GoalDefinition::Literal(lit) => walk_negated_literal(lit, bindings),
+            GoalDefinition::AtomicFormula(af) => Ok(walk_negated_atomic_formula(af, bindings)),
+            GoalDefinition::Literal(lit) => Ok(walk_negated_literal(lit, bindings)),
             _ => Err(MiniplanError::Ground(
                 "negation of non-atom in goal not supported".into(),
             )),
@@ -50,120 +64,106 @@ pub fn walk_goal_definition(
         GoalDefinition::Imply(_, _) => {
             Err(MiniplanError::Ground("imply in goal not supported".into()))
         }
-        GoalDefinition::ForAll(_vars, body) => walk_goal_definition(body, bindings),
-        GoalDefinition::Exists(_vars, body) => walk_goal_definition(body, bindings),
+        GoalDefinition::ForAll(_, body) | GoalDefinition::Exists(_, body) => {
+            walk_goal_definition(body, bindings)
+        }
         GoalDefinition::FluentComparison(_) => Err(MiniplanError::Ground(
             "numeric comparison in goal not supported in v1".into(),
         )),
     }
 }
 
-fn walk_literal(
-    lit: &Literal<Term>,
-    bindings: &[(String, String)],
+/// Converts the conjunction of `gds` into disjunctive normal form by
+/// multiplying out the operands left to right.
+///
+/// # Errors
+///
+/// Propagates the errors of [`walk_goal_definition`] for any operand.
+fn walk_conjunction(
+    gds: &[GoalDefinition],
+    bindings: &[Binding],
 ) -> Result<Vec<LiteralSet>, MiniplanError> {
-    if lit.is_negated() {
-        if let Literal::NotAtomicFormula(af) = lit {
-            walk_negated_atomic_formula(af, bindings)
-        } else {
-            walk_literal_inner(lit, bindings)
-        }
-    } else {
-        if let Literal::AtomicFormula(af) = lit {
-            walk_atomic_formula(af, bindings)
-        } else {
-            walk_literal_inner(lit, bindings)
-        }
+    let mut results = vec![LiteralSet::default()];
+    for g in gds {
+        let sub = walk_goal_definition(g, bindings)?;
+        results = cartesian_product_dnf(&results, &sub);
+    }
+
+    Ok(results)
+}
+
+/// Converts a literal into disjunctive normal form.
+fn walk_literal(lit: &Literal<Term>, bindings: &[Binding]) -> Vec<LiteralSet> {
+    match lit {
+        Literal::AtomicFormula(af) => vec![walk_atomic_formula(af, bindings)],
+        Literal::NotAtomicFormula(af) => walk_negated_atomic_formula(af, bindings),
     }
 }
 
-fn walk_literal_inner(
-    lit: &Literal<Term>,
-    bindings: &[(String, String)],
-) -> Result<Vec<LiteralSet>, MiniplanError> {
-    let af = match lit {
-        Literal::AtomicFormula(af) => af,
-        Literal::NotAtomicFormula(af) => af,
-    };
-    let (pos, neg) = walk_atomic_formula_inner(af, bindings)?;
-    Ok(vec![LiteralSet { pos, neg }])
+/// Converts a positive atomic formula into a single conjunction.
+///
+/// Equalities are treated as constraints rather than facts and contribute no
+/// literal.
+fn walk_atomic_formula(af: &AtomicFormula<Term>, bindings: &[Binding]) -> LiteralSet {
+    match af {
+        AtomicFormula::Equality(_) => LiteralSet::default(),
+        AtomicFormula::Predicate(pred) => LiteralSet {
+            pos: vec![ground_atom(pred, bindings)],
+            neg: Vec::new(),
+        },
+    }
 }
 
-fn walk_atomic_formula(
-    af: &AtomicFormula<Term>,
-    bindings: &[(String, String)],
-) -> Result<Vec<LiteralSet>, MiniplanError> {
-    let (pos, neg) = walk_atomic_formula_inner(af, bindings)?;
-    Ok(vec![LiteralSet { pos, neg }])
-}
-
-fn walk_negated_atomic_formula(
-    af: &AtomicFormula<Term>,
-    bindings: &[(String, String)],
-) -> Result<Vec<LiteralSet>, MiniplanError> {
+/// Converts a negated atomic formula into disjunctive normal form.
+///
+/// A negated equality is decided right away: unsatisfiable (no conjunction)
+/// when both sides ground to the same name, trivially true otherwise.
+fn walk_negated_atomic_formula(af: &AtomicFormula<Term>, bindings: &[Binding]) -> Vec<LiteralSet> {
     match af {
         AtomicFormula::Equality(eq) => {
             let first = term_to_string(eq.first(), bindings);
             let second = term_to_string(eq.second(), bindings);
-            if first != second {
-                Ok(vec![LiteralSet {
-                    pos: Vec::new(),
-                    neg: Vec::new(),
-                }])
+            if first == second {
+                vec![]
             } else {
-                Ok(vec![])
+                vec![LiteralSet::default()]
             }
         }
-        AtomicFormula::Predicate(pred) => {
-            let name = pred.predicate().to_string();
-            let args: Vec<String> = pred
-                .values()
-                .iter()
-                .map(|t| term_to_string(t, bindings))
-                .collect();
-            Ok(vec![LiteralSet {
-                pos: Vec::new(),
-                neg: vec![(name, args)],
-            }])
+        AtomicFormula::Predicate(pred) => vec![LiteralSet {
+            pos: Vec::new(),
+            neg: vec![ground_atom(pred, bindings)],
+        }],
+    }
+}
+
+/// Converts `(not lit)` into disjunctive normal form.
+///
+/// The literal's own polarity is ignored: `(not (not p))` is read as
+/// `(not p)`.
+fn walk_negated_literal(lit: &Literal<Term>, bindings: &[Binding]) -> Vec<LiteralSet> {
+    match lit {
+        Literal::NotAtomicFormula(af) | Literal::AtomicFormula(af) => {
+            walk_negated_atomic_formula(af, bindings)
         }
     }
 }
 
-fn walk_negated_literal(
-    lit: &Literal<Term>,
-    bindings: &[(String, String)],
-) -> Result<Vec<LiteralSet>, MiniplanError> {
-    let af = match lit {
-        Literal::NotAtomicFormula(af) => af,
-        Literal::AtomicFormula(af) => af,
-    };
-    walk_negated_atomic_formula(af, bindings)
+/// Grounds a predicate application under `bindings` into an [`Atom`].
+pub(super) fn ground_atom(pred: &PredicateAtomicFormula<Term>, bindings: &[Binding]) -> Atom {
+    let args = pred
+        .values()
+        .iter()
+        .map(|t| term_to_string(t, bindings))
+        .collect();
+
+    (pred.predicate().to_string(), args)
 }
 
-fn walk_atomic_formula_inner(
-    af: &AtomicFormula<Term>,
-    bindings: &[(String, String)],
-) -> Result<LiteralPair, MiniplanError> {
-    match af {
-        AtomicFormula::Equality(eq) => {
-            let _first = term_to_string(eq.first(), bindings);
-            let _second = term_to_string(eq.second(), bindings);
-            // Equality is handled as a constraint, not a fact
-            Ok((Vec::new(), Vec::new()))
-        }
-        AtomicFormula::Predicate(pred) => {
-            let name = pred.predicate().to_string();
-            let args: Vec<String> = pred
-                .values()
-                .iter()
-                .map(|t| term_to_string(t, bindings))
-                .collect();
-            Ok((vec![(name, args)], Vec::new()))
-        }
-    }
-}
-
-pub(crate) fn term_to_string(term: &Term, bindings: &[(String, String)]) -> String {
+/// Grounds a term to an object name.
+///
+/// Variables are replaced by their binding; unbound variables keep their own
+/// name (including the `?`). Function terms render as `f(a,b)`.
+pub(crate) fn term_to_string(term: &Term, bindings: &[Binding]) -> String {
     match term {
         Term::Name(n) => n.to_string(),
         Term::Variable(v) => {
@@ -171,14 +171,14 @@ pub(crate) fn term_to_string(term: &Term, bindings: &[(String, String)]) -> Stri
             bindings
                 .iter()
                 .find(|(name, _)| name == &var_name)
-                .map(|(_, val)| val.clone())
-                .unwrap_or_else(|| var_name)
+                .map_or_else(|| var_name, |(_, val)| val.clone())
         }
         Term::Function(ft) => function_term_to_string(ft, bindings),
     }
 }
 
-fn function_term_to_string(ft: &FunctionTerm, bindings: &[(String, String)]) -> String {
+/// Renders a function term as `f(a,b)`, or just `f` without arguments.
+fn function_term_to_string(ft: &FunctionTerm, bindings: &[Binding]) -> String {
     let symbol = ft.symbol().to_string();
     let args: Vec<String> = ft
         .terms()
@@ -192,6 +192,12 @@ fn function_term_to_string(ft: &FunctionTerm, bindings: &[(String, String)]) -> 
     }
 }
 
+/// Multiplies two formulas in disjunctive normal form (conjunction of two
+/// disjunctions).
+///
+/// Every pair of conjunctions is merged. If either side is empty (false), the
+/// product is empty; in that case the non-empty side is returned instead, so
+/// an unsatisfiable operand of `and` is effectively dropped.
 fn cartesian_product_dnf(left: &[LiteralSet], right: &[LiteralSet]) -> Vec<LiteralSet> {
     let mut result = Vec::new();
     for l in left {
@@ -203,43 +209,39 @@ fn cartesian_product_dnf(left: &[LiteralSet], right: &[LiteralSet]) -> Vec<Liter
             result.push(LiteralSet { pos, neg });
         }
     }
+
     if result.is_empty() {
-        if !left.is_empty() {
-            result.extend_from_slice(left);
-        }
-        if !right.is_empty() {
-            result.extend_from_slice(right);
-        }
+        result.extend_from_slice(left);
+        result.extend_from_slice(right);
     }
+
     result
 }
 
-pub fn build_state_from_literals(
-    literals: &LiteralSet,
-    task: &Task,
-) -> Result<(State, State), MiniplanError> {
-    let mut pos_state = State::new(task.num_facts());
-    let mut neg_state = State::new(task.num_facts());
+/// Converts a conjunction into `(positive, negative)` fact bitsets sized for
+/// `task`.
+///
+/// Atoms outside the task's fact universe are silently dropped.
+pub(super) fn build_state_from_literals(literals: &LiteralSet, task: &Task) -> (State, State) {
+    (
+        atoms_to_state(&literals.pos, task),
+        atoms_to_state(&literals.neg, task),
+    )
+}
 
-    for (pred, args) in &literals.pos {
+/// Sets the bit of every atom in `atoms` that is part of the task's fact
+/// universe.
+fn atoms_to_state(atoms: &[Atom], task: &Task) -> State {
+    let mut state = State::new(task.num_facts());
+    for (pred, args) in atoms {
         let fact = Fact {
             predicate: pred.clone(),
             args: args.clone(),
         };
         if let Some(id) = task.fact_id(&fact) {
-            pos_state.set(id, true);
+            state.set(id, true);
         }
     }
 
-    for (pred, args) in &literals.neg {
-        let fact = Fact {
-            predicate: pred.clone(),
-            args: args.clone(),
-        };
-        if let Some(id) = task.fact_id(&fact) {
-            neg_state.set(id, true);
-        }
-    }
-
-    Ok((pos_state, neg_state))
+    state
 }

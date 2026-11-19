@@ -1,0 +1,6 @@
+# Stable options only, so `cargo fmt` works without nightly.
+# rustfmt cannot forbid mod.rs (clippy::mod_module_files does) or enforce blank lines after
+# blocks (rust-style covers that); it preserves the blank lines you write.
+style_edition = "2024"
+use_field_init_shorthand = true
+use_try_shorthand = true

@@ -2,7 +2,7 @@
 //!
 //! This module provides a collection of search algorithms (planners) for solving
 //! PDDL planning tasks. It includes unidirectional planners like BFS and A*,
-//! as well as bidirectional planners like BiDij, NBS, and BAE*.
+//! as well as bidirectional planners like `BiDij`, NBS, and BAE*.
 //!
 //! # Entry points
 //!
@@ -33,13 +33,20 @@ mod bfs;
 mod bibfs_uc;
 mod bidij;
 mod gbfs;
+mod meet;
 mod nbs;
+mod open_list;
+mod outcome;
+mod regression;
+#[cfg(test)]
+mod test_support;
 
 use std::time::Duration;
 
 use bitflags::bitflags;
 
 use crate::error::MiniplanError;
+use crate::heuristic::{BlindHeuristic, GoalCountHeuristic, HAdd, HFF, HMax, HZero};
 use crate::plan::Plan;
 use crate::task::{State, Task};
 
@@ -73,6 +80,7 @@ impl HValue {
     pub const INFINITY: HValue = HValue(f64::INFINITY);
 
     /// Returns `true` if this value is finite (not infinity or NaN).
+    #[must_use]
     pub fn is_finite(&self) -> bool {
         self.0.is_finite()
     }
@@ -218,7 +226,7 @@ pub trait Planner: Send {
     fn name(&self) -> &str;
 
     /// A short description of the algorithm.
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         ""
     }
 
@@ -228,6 +236,14 @@ pub trait Planner: Send {
     }
 
     /// Solve the given `task` within the specified `limits`.
+    ///
+    /// Running out of a limit is not an error; it yields [`SearchOutcome::LimitReached`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the planner cannot handle `task`, for example
+    /// [`MiniplanError::UnsupportedConditionalEffects`] from the regression-based
+    /// bidirectional planners.
     fn solve(&mut self, task: &Task, limits: &SearchLimits)
     -> Result<SearchOutcome, MiniplanError>;
 }
@@ -278,12 +294,17 @@ pub type HeuristicFactory = std::sync::Arc<
 /// algorithms, then add custom ones with [`register_planner`](Self::register_planner)
 /// and [`register_heuristic`](Self::register_heuristic).
 pub struct Registry {
+    /// Registered planners by [`RegisteredPlanner::name`]. A later registration under the
+    /// same name replaces the earlier one.
     planners: rustc_hash::FxHashMap<String, RegisteredPlanner>,
+    /// Registered heuristics by [`RegisteredHeuristic::name`]. A later registration under
+    /// the same name replaces the earlier one.
     heuristics: rustc_hash::FxHashMap<String, RegisteredHeuristic>,
 }
 
 impl Registry {
     /// Create a registry populated with all built-in planners and heuristics.
+    #[must_use]
     pub fn with_builtins() -> Self {
         let mut r = Self {
             planners: rustc_hash::FxHashMap::default(),
@@ -293,14 +314,14 @@ impl Registry {
         r
     }
 
+    /// Registers every built-in planner and heuristic.
     fn register_builtins(&mut self) {
-        use crate::heuristic::{BlindHeuristic, GoalCountHeuristic, HAdd, HFF, HMax, HZero};
-        use crate::search::astar::Astar;
-        use crate::search::bfs::Bfs;
-        use crate::search::bibfs_uc::BibfsUc;
-        use crate::search::bidij::BiDij;
-        use crate::search::gbfs::Gbfs;
+        self.register_builtin_planners();
+        self.register_builtin_heuristics();
+    }
 
+    /// Registers the built-in unidirectional planners, then the bidirectional ones.
+    fn register_builtin_planners(&mut self) {
         self.register_planner(RegisteredPlanner {
             name: "bfs",
             description: "Breadth-first search",
@@ -315,10 +336,7 @@ impl Registry {
                 | PlannerCapabilities::NEGATIVE_PRECONDS
                 | PlannerCapabilities::CONDITIONAL_EFFECTS
                 | PlannerCapabilities::ACTION_COSTS,
-            factory: std::sync::Arc::new(|_cfg| {
-                let h = Box::new(HFF);
-                Ok(Box::new(Astar::new(h)))
-            }),
+            factory: std::sync::Arc::new(|_cfg| Ok(Box::new(Astar::new(Box::new(HFF))))),
         });
 
         self.register_planner(RegisteredPlanner {
@@ -327,11 +345,17 @@ impl Registry {
             capabilities: PlannerCapabilities::CLASSICAL
                 | PlannerCapabilities::NEGATIVE_PRECONDS
                 | PlannerCapabilities::CONDITIONAL_EFFECTS,
-            factory: std::sync::Arc::new(|_cfg| {
-                let h = Box::new(HFF);
-                Ok(Box::new(Gbfs::new(h)))
-            }),
+            factory: std::sync::Arc::new(|_cfg| Ok(Box::new(Gbfs::new(Box::new(HFF))))),
         });
+
+        self.register_bidirectional_planners();
+    }
+
+    /// Registers the built-in bidirectional planners.
+    fn register_bidirectional_planners(&mut self) {
+        let cost_aware = PlannerCapabilities::CLASSICAL
+            | PlannerCapabilities::NEGATIVE_PRECONDS
+            | PlannerCapabilities::ACTION_COSTS;
 
         self.register_planner(RegisteredPlanner {
             name: "bibfs-uc",
@@ -343,89 +367,45 @@ impl Registry {
         self.register_planner(RegisteredPlanner {
             name: "bidij",
             description: "Bidirectional Dijkstra (cost-aware)",
-            capabilities: PlannerCapabilities::CLASSICAL
-                | PlannerCapabilities::NEGATIVE_PRECONDS
-                | PlannerCapabilities::ACTION_COSTS,
+            capabilities: cost_aware,
             factory: std::sync::Arc::new(|_cfg| Ok(Box::new(BiDij::new()))),
         });
 
         self.register_planner(RegisteredPlanner {
             name: "nbs",
             description: "Near-Optimal Bidirectional Search (Chen et al. 2017)",
-            capabilities: PlannerCapabilities::CLASSICAL
-                | PlannerCapabilities::NEGATIVE_PRECONDS
-                | PlannerCapabilities::ACTION_COSTS,
-            factory: std::sync::Arc::new(|cfg| {
-                let h_name = cfg
-                    .opts
-                    .get("heuristic")
-                    .map(|s| s.as_str())
-                    .unwrap_or("hff");
-                let h: Box<dyn crate::search::Heuristic> = match h_name {
-                    "hadd" => Box::new(HAdd),
-                    "hmax" => Box::new(HMax),
-                    "hff" => Box::new(HFF),
-                    "blind" => Box::new(crate::heuristic::BlindHeuristic),
-                    "zero" => Box::new(HZero),
-                    _ => Box::new(HFF),
-                };
-                Ok(Box::new(nbs::Nbs::new(h)))
-            }),
+            capabilities: cost_aware,
+            factory: std::sync::Arc::new(|cfg| Ok(Box::new(Nbs::new(heuristic_option(cfg))))),
         });
 
         self.register_planner(RegisteredPlanner {
             name: "bae",
             description: "Bidirectional A* with Error (BAE*, Sadhukhan 2013)",
-            capabilities: PlannerCapabilities::CLASSICAL
-                | PlannerCapabilities::NEGATIVE_PRECONDS
-                | PlannerCapabilities::ACTION_COSTS,
-            factory: std::sync::Arc::new(|cfg| {
-                let h_name = cfg
-                    .opts
-                    .get("heuristic")
-                    .map(|s| s.as_str())
-                    .unwrap_or("hff");
-                let h: Box<dyn crate::search::Heuristic> = match h_name {
-                    "hadd" => Box::new(HAdd),
-                    "hmax" => Box::new(HMax),
-                    "hff" => Box::new(HFF),
-                    "blind" => Box::new(crate::heuristic::BlindHeuristic),
-                    "zero" => Box::new(HZero),
-                    _ => Box::new(HFF),
-                };
-                Ok(Box::new(bae::Bae::new(h)))
-            }),
+            capabilities: cost_aware,
+            factory: std::sync::Arc::new(|cfg| Ok(Box::new(Bae::new(heuristic_option(cfg))))),
         });
+    }
 
-        self.register_heuristic(RegisteredHeuristic {
-            name: "blind",
-            factory: std::sync::Arc::new(|_cfg| Ok(Box::new(BlindHeuristic))),
-        });
+    /// Registers the built-in heuristics under their command-line names.
+    fn register_builtin_heuristics(&mut self) {
+        let builtins: [(&'static str, HeuristicFactory); 6] = [
+            (
+                "blind",
+                std::sync::Arc::new(|_cfg| Ok(Box::new(BlindHeuristic))),
+            ),
+            (
+                "goal-count",
+                std::sync::Arc::new(|_cfg| Ok(Box::new(GoalCountHeuristic))),
+            ),
+            ("hadd", std::sync::Arc::new(|_cfg| Ok(Box::new(HAdd)))),
+            ("hmax", std::sync::Arc::new(|_cfg| Ok(Box::new(HMax)))),
+            ("hff", std::sync::Arc::new(|_cfg| Ok(Box::new(HFF)))),
+            ("zero", std::sync::Arc::new(|_cfg| Ok(Box::new(HZero)))),
+        ];
 
-        self.register_heuristic(RegisteredHeuristic {
-            name: "goal-count",
-            factory: std::sync::Arc::new(|_cfg| Ok(Box::new(GoalCountHeuristic))),
-        });
-
-        self.register_heuristic(RegisteredHeuristic {
-            name: "hadd",
-            factory: std::sync::Arc::new(|_cfg| Ok(Box::new(HAdd))),
-        });
-
-        self.register_heuristic(RegisteredHeuristic {
-            name: "hmax",
-            factory: std::sync::Arc::new(|_cfg| Ok(Box::new(HMax))),
-        });
-
-        self.register_heuristic(RegisteredHeuristic {
-            name: "hff",
-            factory: std::sync::Arc::new(|_cfg| Ok(Box::new(HFF))),
-        });
-
-        self.register_heuristic(RegisteredHeuristic {
-            name: "zero",
-            factory: std::sync::Arc::new(|_cfg| Ok(Box::new(HZero))),
-        });
+        for (name, factory) in builtins {
+            self.register_heuristic(RegisteredHeuristic { name, factory });
+        }
     }
 
     /// Register a planner in this registry.
@@ -439,6 +419,11 @@ impl Registry {
     }
 
     /// Build a planner instance by name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MiniplanError::InvalidPlanner`] if no planner is registered under `name`,
+    /// or whatever error the planner's factory returns for `cfg`.
     pub fn build_planner(
         &self,
         name: &str,
@@ -448,10 +433,16 @@ impl Registry {
             .planners
             .get(name)
             .ok_or_else(|| MiniplanError::InvalidPlanner(name.to_owned()))?;
+
         (registered.factory)(cfg)
     }
 
     /// Build a heuristic instance by name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MiniplanError::InvalidHeuristic`] if no heuristic is registered under
+    /// `name`, or whatever error the heuristic's factory returns for `cfg`.
     pub fn build_heuristic(
         &self,
         name: &str,
@@ -461,6 +452,7 @@ impl Registry {
             .heuristics
             .get(name)
             .ok_or_else(|| MiniplanError::InvalidHeuristic(name.to_owned()))?;
+
         (registered.factory)(cfg)
     }
 
@@ -472,6 +464,21 @@ impl Registry {
     /// Iterate over all registered heuristics.
     pub fn heuristics(&self) -> impl Iterator<Item = &RegisteredHeuristic> {
         self.heuristics.values()
+    }
+}
+
+/// The forward heuristic named by the `heuristic` option of `cfg`, used by the
+/// heuristic-driven bidirectional planners.
+///
+/// Accepts `hadd`, `hmax`, `hff`, `blind` and `zero`. Anything else, or no option at all,
+/// falls back to [`HFF`].
+fn heuristic_option(cfg: &PlannerConfig) -> Box<dyn Heuristic> {
+    match cfg.opts.get("heuristic").map(String::as_str) {
+        Some("hadd") => Box::new(HAdd),
+        Some("hmax") => Box::new(HMax),
+        Some("blind") => Box::new(BlindHeuristic),
+        Some("zero") => Box::new(HZero),
+        _ => Box::new(HFF),
     }
 }
 
@@ -502,11 +509,17 @@ impl Default for Solver {
 
 impl Solver {
     /// Create a new solver with the built-in registry.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Solve a task using the specified planner choice.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the chosen planner cannot be built (see
+    /// [`Registry::build_planner`]) or rejects `task` (see [`Planner::solve`]).
     pub fn solve_task(
         &self,
         task: &Task,
@@ -516,6 +529,7 @@ impl Solver {
         let mut planner = self
             .registry
             .build_planner(choice.kind.name(), &choice.config)?;
+
         planner.solve(task, limits)
     }
 }
@@ -586,6 +600,7 @@ impl std::str::FromStr for PlannerKind {
 
 impl PlannerKind {
     /// Returns the registry name for this planner kind.
+    #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
             PlannerKind::Bfs => "bfs",
@@ -620,6 +635,7 @@ pub struct PlannerChoice {
 
 impl PlannerChoice {
     /// Create a new planner choice with just a planner kind.
+    #[must_use]
     pub fn new(kind: PlannerKind) -> Self {
         Self {
             kind,

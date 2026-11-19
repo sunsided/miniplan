@@ -1,3 +1,5 @@
+//! The zero heuristic, which turns informed search into uniform-cost search.
+
 use crate::search::HValue;
 use crate::search::Heuristic;
 use crate::task::{State, Task};
@@ -18,7 +20,7 @@ use crate::task::{State, Task};
 pub struct HZero;
 
 impl Heuristic for HZero {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "zero"
     }
 

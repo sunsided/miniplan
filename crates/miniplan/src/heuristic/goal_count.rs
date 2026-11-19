@@ -1,3 +1,5 @@
+//! The goal-count heuristic: number of unsatisfied positive goal facts.
+
 use crate::search::HValue;
 use crate::search::Heuristic;
 use crate::task::{State, Task};
@@ -18,7 +20,7 @@ use crate::task::{State, Task};
 pub struct GoalCountHeuristic;
 
 impl Heuristic for GoalCountHeuristic {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "goal-count"
     }
 
@@ -29,6 +31,6 @@ impl Heuristic for GoalCountHeuristic {
                 count += 1;
             }
         }
-        HValue(count as f64)
+        HValue(f64::from(count))
     }
 }

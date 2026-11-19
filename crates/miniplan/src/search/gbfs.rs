@@ -1,20 +1,29 @@
+//! Greedy best-first search ([`Gbfs`]): always expands the state that looks closest to the
+//! goal.
+
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
-use std::time::Instant;
+
+use rustc_hash::FxHashSet;
 
 use crate::error::MiniplanError;
-use crate::plan::{Plan, PlanStep};
 use crate::search::Heuristic;
+use crate::search::outcome::{Budget, plan_from_ops};
 use crate::search::{
     HValue, Planner, PlannerCapabilities, SearchLimits, SearchOutcome, SearchStats,
 };
 use crate::task::{OpId, State, Task};
 
+/// An open GBFS node. Ordered by [`GbfsNode::h_score`] only, smallest first.
 #[derive(Debug, Clone)]
 struct GbfsNode {
+    /// The heuristic estimate from [`GbfsNode::state`] to the goal.
     h_score: HValue,
+    /// The state this node stands for.
     state: State,
+    /// The operators leading from the initial state to [`GbfsNode::state`], in order.
     path: Vec<OpId>,
+    /// Path cost from the initial state. Tracked but never used for ordering.
     g_score: f64,
 }
 
@@ -57,22 +66,51 @@ impl Ord for GbfsNode {
 /// assert_eq!(planner.name(), "gbfs");
 /// ```
 pub struct Gbfs {
+    /// Estimates the cost from a state to the goal; the only ordering criterion.
     heuristic: Box<dyn Heuristic>,
 }
 
 impl Gbfs {
     /// Create a new GBFS planner with the given heuristic.
+    #[must_use]
     pub fn new(heuristic: Box<dyn Heuristic>) -> Self {
         Gbfs { heuristic }
+    }
+
+    /// The successors of `node` that are not closed yet.
+    fn successors(&self, task: &Task, node: &GbfsNode, closed: &FxHashSet<State>) -> Vec<GbfsNode> {
+        let mut successors = Vec::new();
+        for op in &task.operators {
+            if !node.state.applicable(op) {
+                continue;
+            }
+
+            let next = node.state.apply(op);
+            if closed.contains(&next) {
+                continue;
+            }
+
+            let h = self.heuristic.estimate(task, &next);
+            let mut path = node.path.clone();
+            path.push(op.id);
+            successors.push(GbfsNode {
+                h_score: h,
+                state: next,
+                path,
+                g_score: node.g_score + f64::from(op.cost),
+            });
+        }
+
+        successors
     }
 }
 
 impl Planner for Gbfs {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "gbfs"
     }
 
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         "Greedy best-first search"
     }
 
@@ -82,90 +120,44 @@ impl Planner for Gbfs {
             | PlannerCapabilities::CONDITIONAL_EFFECTS
     }
 
+    /// Runs greedy best-first search on `task`. Never fails.
     fn solve(
         &mut self,
         task: &Task,
         limits: &SearchLimits,
     ) -> Result<SearchOutcome, MiniplanError> {
-        let start = Instant::now();
+        let budget = Budget::start(limits);
         let mut stats = SearchStats::default();
-
         let mut open = BinaryHeap::new();
-        let mut closed = rustc_hash::FxHashSet::default();
+        let mut closed = FxHashSet::default();
 
-        let h = self.heuristic.estimate(task, &task.init);
         open.push(GbfsNode {
-            h_score: h,
+            h_score: self.heuristic.estimate(task, &task.init),
             state: task.init.clone(),
             path: Vec::new(),
             g_score: 0.0,
         });
 
         while let Some(node) = open.pop() {
-            if closed.contains(&node.state) {
+            if !closed.insert(node.state.clone()) {
                 continue;
             }
-            closed.insert(node.state.clone());
+
             stats.nodes_expanded += 1;
-
             if node.state.satisfies(&task.goal_pos, &task.goal_neg) {
-                let plan = build_plan(&node.path, task);
-                stats.plan_cost = plan.cost;
-                stats.plan_length = plan.len();
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::Plan(plan, stats));
+                return Ok(budget.plan(plan_from_ops(&node.path, task), stats));
             }
 
-            if let Some(max_nodes) = limits.node_budget
-                && stats.nodes_expanded >= max_nodes
-            {
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::LimitReached(stats));
+            if budget.exhausted(&stats) {
+                return Ok(budget.limit_reached(stats));
             }
 
-            if let Some(timeout) = limits.time_budget
-                && start.elapsed() >= timeout
-            {
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::LimitReached(stats));
-            }
-
-            for op in &task.operators {
-                if node.state.applicable(op) {
-                    let next = node.state.apply(op);
-                    if !closed.contains(&next) {
-                        stats.nodes_generated += 1;
-                        let h = self.heuristic.estimate(task, &next);
-                        let mut new_path = node.path.clone();
-                        new_path.push(op.id);
-                        open.push(GbfsNode {
-                            h_score: h,
-                            state: next,
-                            path: new_path,
-                            g_score: node.g_score + op.cost as f64,
-                        });
-                    }
-                }
+            for successor in self.successors(task, &node, &closed) {
+                stats.nodes_generated += 1;
+                open.push(successor);
             }
         }
 
-        stats.elapsed = start.elapsed();
-        Ok(SearchOutcome::Unsolvable(stats))
+        Ok(budget.unsolvable(stats))
     }
-}
-
-fn build_plan(path: &[OpId], task: &Task) -> Plan {
-    let mut plan = Plan::new();
-    let mut total_cost = 0.0;
-    for &op_id in path {
-        if let Some(op) = task.operators.get(op_id.0) {
-            plan.steps.push(PlanStep {
-                op_id,
-                op_name: op.name.clone(),
-            });
-            total_cost += op.cost as f64;
-        }
-    }
-    plan.cost = total_cost;
-    plan
 }

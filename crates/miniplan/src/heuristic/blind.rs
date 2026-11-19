@@ -1,3 +1,5 @@
+//! The blind heuristic: goal test only.
+
 use crate::search::HValue;
 use crate::search::Heuristic;
 use crate::task::{State, Task};
@@ -18,7 +20,7 @@ use crate::task::{State, Task};
 pub struct BlindHeuristic;
 
 impl Heuristic for BlindHeuristic {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "blind"
     }
 

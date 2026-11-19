@@ -6,6 +6,8 @@ A PDDL planner library built around the [`pddl`](https://github.com/sunsided/pdd
 [![Crates.io](https://img.shields.io/crates/v/miniplan)](https://crates.io/crates/miniplan)
 [![Crates.io](https://img.shields.io/crates/v/miniplan-cli)](https://crates.io/crates/miniplan-cli)
 [![docs.rs](https://img.shields.io/docsrs/miniplan)](https://docs.rs/miniplan)
+[![codecov](https://codecov.io/gh/sunsided/miniplan/graph/badge.svg)](https://codecov.io/gh/sunsided/miniplan)
+[![MSRV](https://img.shields.io/crates/msrv/miniplan)](https://crates.io/crates/miniplan)
 [![License](https://img.shields.io/badge/license-EUPL--1.2-blue)](https://spdx.org/licenses/EUPL-1.2.html)
 ![Rust Edition](https://img.shields.io/badge/edition-2024-orange?logo=rust)
 [![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance/)
@@ -48,6 +50,14 @@ cargo install miniplan-cli --locked
 
 The resulting binary is `miniplan` (not `miniplan-cli`).
 
+Prebuilt binaries for Linux (glibc and static musl), macOS and Windows are attached to each
+[GitHub Release](https://github.com/sunsided/miniplan/releases). Each one comes with a
+CycloneDX SBOM and build attestations; verify a download with:
+
+```bash
+gh attestation verify <archive-or-binary> --repo sunsided/miniplan
+```
+
 Or install from the git repository:
 
 ```bash
@@ -66,7 +76,7 @@ cargo build --release
 
 Solve a bundled example with search statistics:
 
-```
+```text
 $ miniplan solve --stats examples/pddl/blocksworld.pddl
 ; cost = 8
 ; length = 8
@@ -94,7 +104,7 @@ miniplan check examples/pddl/gripper.pddl
 
 List available planners and heuristics:
 
-```
+```text
 $ miniplan list-planners
 Available planners:
   bfs          Breadth-first search
@@ -149,7 +159,7 @@ Available heuristics:
 
 ## Library Usage
 
-```rust
+```rust,no_run
 use std::path::PathBuf;
 
 use miniplan::pddl_io::load_files_named;
@@ -190,6 +200,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SearchOutcome::LimitReached(_) => {
             eprintln!("Search limit reached.");
         }
+        // SearchOutcome is #[non_exhaustive].
+        _ => eprintln!("Unknown search outcome."),
     }
 
     Ok(())
@@ -245,7 +257,7 @@ A [pre-commit](https://pre-commit.com/) configuration is included (`.pre-commit-
 
 ## Project Layout
 
-```
+```text
 crates/miniplan/         Core library
   src/
     ground/              PDDL grounding
@@ -265,9 +277,26 @@ Taskfile.dist.yaml       Task definitions
 - **Current**: grounded STRIPS, BFS/A*/GBFS, h^FF
 - **Planned**: landmark heuristics, plan validation, more PDDL coverage (numerics, durative actions)
 
+## MSRV
+
+The minimum supported Rust version is **1.88** (let-chains). It is a signal, not a contract:
+it may rise in a minor release when a dependency or a language feature needs it, and the
+changelog says so.
+
+## Contributing
+
+See [CONTRIBUTING.md](https://github.com/sunsided/miniplan/blob/main/CONTRIBUTING.md).
+
 ## License
 
 Licensed under the **European Union Public Licence 1.2** (EUPL-1.2). See the [SPDX entry](https://spdx.org/licenses/EUPL-1.2.html) or the [official EU page](https://joinup.ec.europa.eu/collection/eupl) for details.
+
+The Rust example programs in `crates/miniplan/examples/` are public domain (CC0-1.0), so you
+can copy them into anything. Per-file licensing is declared in
+[`REUSE.toml`](https://github.com/sunsided/miniplan/blob/main/REUSE.toml).
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion
+in this work by you shall be licensed as above, without any additional terms or conditions.
 
 ## Acknowledgements
 

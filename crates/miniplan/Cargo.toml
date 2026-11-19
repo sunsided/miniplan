@@ -3,6 +3,7 @@ name = "miniplan"
 description = "A PDDL planner library built around the pddl crate, with grounding and search utilities"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
@@ -16,9 +17,21 @@ thiserror.workspace = true
 fixedbitset.workspace = true
 rustc-hash.workspace = true
 indexmap.workspace = true
-tracing.workspace = true
 bitflags.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
 pretty_assertions.workspace = true
 tempfile.workspace = true
+
+[[bench]]
+name = "search"
+harness = false
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--html-in-header", "docs/mermaid.html"]
+
+[lints]
+workspace = true
