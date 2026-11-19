@@ -325,8 +325,8 @@ pub fn load_files(paths: &[impl AsRef<Path>]) -> Result<(Domain, Problem), Minip
 /// Load from files with optional name selection.
 ///
 /// One file is handled like [`load_combined_str_named`]. With two files, their
-/// definitions are merged; a name is then only needed (and only checked) for
-/// a kind that has more than one definition.
+/// definitions are merged; a name is then only required for a kind that has
+/// more than one definition, but a given name is always checked.
 ///
 /// # Errors
 ///
@@ -387,8 +387,7 @@ fn select_from_merged(
     Ok((domain, problem))
 }
 
-/// Returns the only definition (ignoring `name`), or the one called `name`
-/// among several.
+/// Returns the definition called `name`, or the only one when no name is given.
 ///
 /// `defs` must not be empty, and `name` must be `Some` when there are several
 /// definitions; [`select_from_merged`] checks both beforehand.
@@ -399,8 +398,8 @@ fn select_from_merged(
 /// or (unreachable after those checks) when `defs` is empty.
 fn pick_unique_or_named<T: Definition>(defs: &[T], name: Option<&str>) -> Result<T, MiniplanError> {
     match name {
-        Some(name) if defs.len() > 1 => find_named(defs, name),
-        _ => defs.first().cloned().ok_or_else(missing::<T>),
+        Some(name) => find_named(defs, name),
+        None => defs.first().cloned().ok_or_else(missing::<T>),
     }
 }
 

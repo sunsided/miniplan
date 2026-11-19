@@ -148,6 +148,20 @@ fn two_files_select_domain_by_name() {
     assert_eq!(domain.name().to_string(), "d2");
 }
 
+/// With one definition per kind across two files, a given name must still match it.
+#[test]
+fn two_files_check_given_names() {
+    let (_dir, paths) = write_files(&[("d.pddl", DOMAIN_D1), ("p.pddl", PROBLEM_P1)]);
+
+    assert!(load_files_named(&paths, Some("d1"), Some("p1")).is_ok());
+    assert!(
+        parse_error(load_files_named(&paths, Some("d9"), None)).contains("domain 'd9' not found")
+    );
+    assert!(
+        parse_error(load_files_named(&paths, None, Some("p9"))).contains("problem 'p9' not found")
+    );
+}
+
 /// A single file with one domain and one problem accepts their own names and reports a
 /// name that matches neither.
 #[test]
