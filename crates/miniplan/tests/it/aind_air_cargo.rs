@@ -4,7 +4,7 @@ use miniplan::pddl_io::{PddlFile, load_combined_str, load_combined_str_named};
 use miniplan::search::{Astar, Planner, SearchLimits};
 use pddl::Parser;
 
-const AIR_CARGO_SRC: &str = include_str!("../../../examples/pddl/air-cargo.pddl");
+const AIR_CARGO_SRC: &str = include_str!("../../../../examples/pddl/air-cargo.pddl");
 
 const TWO_DOMAIN_FIXTURE: &str = r#"
 (define (domain domain-a)

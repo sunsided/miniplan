@@ -4,7 +4,7 @@ use miniplan::pddl_io::load_combined_str_named;
 use miniplan::search::{Astar, Planner, SearchLimits};
 use pddl::Parser;
 
-const HANOI_DERIVED_SRC: &str = include_str!("../../../examples/pddl/hanoi-derived.pddl");
+const HANOI_DERIVED_SRC: &str = include_str!("../../../../examples/pddl/hanoi-derived.pddl");
 
 #[test]
 fn test_hanoi_derived_plan_length() {
