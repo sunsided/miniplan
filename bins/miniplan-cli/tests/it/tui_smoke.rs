@@ -6,7 +6,7 @@ use assert_cmd::Command;
 
 /// A command for the `miniplan` binary built by this package.
 fn miniplan() -> Command {
-    Command::cargo_bin("miniplan").unwrap()
+    Command::new(env!("CARGO_BIN_EXE_miniplan"))
 }
 
 /// `tui` without input files is a usage error (exit code 2).
