@@ -1,0 +1,8 @@
+# Stricter than clippy defaults (100 / 25) to push toward helper extraction.
+# Lower further for simulation or game loops; never raise to silence a finding.
+too-many-lines-threshold = 60
+cognitive-complexity-threshold = 15
+
+# Tests may unwrap/expect freely if the restriction lints are ever enabled.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
