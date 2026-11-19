@@ -18,7 +18,7 @@ use crate::task::{State, Task};
 pub struct HZero;
 
 impl Heuristic for HZero {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "zero"
     }
 

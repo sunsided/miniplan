@@ -23,17 +23,18 @@ pub struct Bfs {}
 
 impl Bfs {
     /// Create a new BFS planner.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 }
 
 impl Planner for Bfs {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "bfs"
     }
 
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         "Breadth-first search planner"
     }
 
@@ -108,7 +109,7 @@ fn build_plan(path: &[crate::task::OpId], task: &Task) -> Plan {
                 op_id,
                 op_name: op.name.clone(),
             });
-            total_cost += op.cost as f64;
+            total_cost += f64::from(op.cost);
         }
     }
     plan.cost = total_cost;

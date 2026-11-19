@@ -556,10 +556,7 @@ impl App {
     }
 
     fn plan_line_count(&self) -> usize {
-        self.solved_plan
-            .as_ref()
-            .map(|p| p.steps.len() + 2)
-            .unwrap_or(1)
+        self.solved_plan.as_ref().map_or(1, |p| p.steps.len() + 2)
     }
 
     fn open_planner_modal(&mut self) {
@@ -774,7 +771,7 @@ impl App {
         let task = match ground(domain, problem) {
             Ok(t) => t,
             Err(e) => {
-                self.error = Some(format!("Grounding failed: {}", e));
+                self.error = Some(format!("Grounding failed: {e}"));
                 return;
             }
         };
@@ -783,7 +780,7 @@ impl App {
         let kind: PlannerKind = match planner_name.parse() {
             Ok(k) => k,
             Err(e) => {
-                self.error = Some(format!("Invalid planner: {}", e));
+                self.error = Some(format!("Invalid planner: {e}"));
                 return;
             }
         };
@@ -813,7 +810,7 @@ impl App {
                 match crate::duration::parse_duration(&self.timeout_input) {
                     Ok(d) => Some(d),
                     Err(e) => {
-                        self.set_flash_error(format!("Invalid timeout: {}", e));
+                        self.set_flash_error(format!("Invalid timeout: {e}"));
                         return;
                     }
                 }
@@ -824,7 +821,7 @@ impl App {
                 match self.max_nodes_input.parse::<u64>() {
                     Ok(n) => Some(n),
                     Err(e) => {
-                        self.set_flash_error(format!("Invalid max nodes: {}", e));
+                        self.set_flash_error(format!("Invalid max nodes: {e}"));
                         return;
                     }
                 }

@@ -75,7 +75,7 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()>
                                 app.set_flash_error("Plan written successfully".to_string());
                             }
                             Err(e) => {
-                                app.set_flash_error(format!("Failed to write plan: {}", e));
+                                app.set_flash_error(format!("Failed to write plan: {e}"));
                             }
                         }
                     } else {

@@ -154,7 +154,7 @@ proptest! {
     }
 }
 
-/// Regression: BiDij looped forever when the goal was unreachable but backward regression
+/// Regression: `BiDij` looped forever when the goal was unreachable but backward regression
 /// kept producing new subgoals (here through the `n3 <-> n5` cycle).
 #[test]
 fn bidij_reports_unreachable_goal_as_unsolvable() {

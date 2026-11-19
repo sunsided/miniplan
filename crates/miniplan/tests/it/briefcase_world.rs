@@ -5,7 +5,7 @@ use miniplan::pddl_io::{load_domain_str, load_problem_str};
 use miniplan::search::{Astar, Bfs, Planner, SearchLimits};
 
 // Simple gripper-like domain for initial smoke testing
-const SIMPLE_DOMAIN: &str = r#"
+const SIMPLE_DOMAIN: &str = r"
 (define (domain simple-test)
     (:requirements :strips :typing)
     (:types room ball)
@@ -29,9 +29,9 @@ const SIMPLE_DOMAIN: &str = r#"
         :precondition (holding ?b)
         :effect (and (free) (at-ball ?b ?r) (not (holding ?b))))
 )
-"#;
+";
 
-const SIMPLE_PROBLEM: &str = r#"
+const SIMPLE_PROBLEM: &str = r"
 (define (problem simple-test-1)
     (:domain simple-test)
     (:objects r1 r2 - room
@@ -39,9 +39,9 @@ const SIMPLE_PROBLEM: &str = r#"
     (:init (at r1) (at-ball b1 r1) (free))
     (:goal (and (at r2) (at-ball b1 r2)))
 )
-"#;
+";
 
-const BRIEFCASE_DOMAIN: &str = r#"
+const BRIEFCASE_DOMAIN: &str = r"
 (define (domain briefcase-world)
     (:requirements :strips :equality :typing :conditional-effects)
     (:types location physob)
@@ -64,9 +64,9 @@ const BRIEFCASE_DOMAIN: &str = r#"
         :precondition (and (in ?x) (at B ?l))
         :effect (not (in ?x)))
 )
-"#;
+";
 
-const BRIEFCASE_PROBLEM: &str = r#"
+const BRIEFCASE_PROBLEM: &str = r"
 (define (problem get-paid)
     (:domain briefcase-world)
     (:objects home office - location
@@ -74,7 +74,7 @@ const BRIEFCASE_PROBLEM: &str = r#"
     (:init (at B home) (at P home) (at D home) (in P))
     (:goal (and (at B office) (at D home) (at P home)))
 )
-"#;
+";
 
 #[test]
 fn test_briefcase_parse_and_ground() {
@@ -154,7 +154,7 @@ fn test_briefcase_solve_bfs() {
 
     for (i, fact) in task.facts.iter().enumerate() {
         if task.goal_pos.0.contains(i) || task.init.0.contains(i) {
-            eprintln!("  [{}] {:?}", i, fact);
+            eprintln!("  [{i}] {fact:?}");
         }
     }
 
@@ -217,7 +217,7 @@ fn test_briefcase_solve_astar_ff() {
     }
 }
 
-const DOMAIN_WITH_COMMENTS: &str = r#"
+const DOMAIN_WITH_COMMENTS: &str = r"
 ; This is a test domain with leading comments
 ; note: uses (either ...) typing syntax
 ; another comment with unbalanced ( parens here
@@ -245,9 +245,9 @@ const DOMAIN_WITH_COMMENTS: &str = r#"
         :precondition (holding ?b)
         :effect (and (free) (at-ball ?b ?r) (not (holding ?b))))
 )
-"#;
+";
 
-const PROBLEM_WITH_COMMENTS: &str = r#"
+const PROBLEM_WITH_COMMENTS: &str = r"
 ; Problem file also supports leading comments
 ; goal: move things (careful with parens) around
 
@@ -258,7 +258,7 @@ const PROBLEM_WITH_COMMENTS: &str = r#"
     (:init (at r1) (at-ball b1 r1) (free))
     (:goal (and (at r2) (at-ball b1 r2)))
 )
-"#;
+";
 
 #[test]
 fn test_domain_with_leading_comments() {
@@ -270,7 +270,7 @@ fn test_domain_with_leading_comments() {
     assert!(!task.operators.is_empty(), "should have grounded operators");
 }
 
-const COMBINED_WITH_COMMENTS: &str = r#"
+const COMBINED_WITH_COMMENTS: &str = r"
 ; Combined PDDL file with domain and problem
 ; handles (either cargo plane) typing
 
@@ -295,7 +295,7 @@ const COMBINED_WITH_COMMENTS: &str = r#"
     (:init (at a))
     (:goal (and (at b)))
 )
-"#;
+";
 
 #[test]
 fn test_combined_with_leading_and_interleaved_comments() {

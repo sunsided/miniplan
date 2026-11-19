@@ -35,17 +35,18 @@ pub struct BibfsUc {}
 
 impl BibfsUc {
     /// Create a new bidirectional BFS planner.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 }
 
 impl Planner for BibfsUc {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "bibfs-uc"
     }
 
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         "Bidirectional BFS (uniform-cost, not cost-aware)"
     }
 
@@ -228,7 +229,7 @@ fn build_plan_from_ops(ops: &[OpId], task: &Task) -> Plan {
                 op_id,
                 op_name: op.name.clone(),
             });
-            total_cost += op.cost as f64;
+            total_cost += f64::from(op.cost);
         }
     }
     plan.cost = total_cost;
@@ -320,7 +321,7 @@ mod tests {
         let mut fact_index = FxHashMap::default();
         for i in 0..num_facts {
             let fact = Fact {
-                predicate: format!("f{}", i),
+                predicate: format!("f{i}"),
                 args: vec![],
             };
             let id = FactId(i);

@@ -31,7 +31,7 @@ fn test_cli_list_planners() {
 #[test]
 fn test_cli_check_multi_problem_errors() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let pddl_path = format!("{}/../../examples/pddl/air-cargo.pddl", manifest_dir);
+    let pddl_path = format!("{manifest_dir}/../../examples/pddl/air-cargo.pddl");
 
     let output = Command::new(env!("CARGO_BIN_EXE_miniplan"))
         .arg("check")
@@ -41,8 +41,8 @@ fn test_cli_check_multi_problem_errors() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    eprintln!("test_cli_check_multi_problem_errors stderr: {}", stderr);
-    eprintln!("test_cli_check_multi_problem_errors stdout: {}", stdout);
+    eprintln!("test_cli_check_multi_problem_errors stderr: {stderr}");
+    eprintln!("test_cli_check_multi_problem_errors stdout: {stdout}");
     eprintln!(
         "test_cli_check_multi_problem_errors exit: {:?}",
         output.status
@@ -57,7 +57,7 @@ fn test_cli_check_multi_problem_errors() {
 #[test]
 fn test_cli_check_with_problem_flag() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let pddl_path = format!("{}/../../examples/pddl/air-cargo.pddl", manifest_dir);
+    let pddl_path = format!("{manifest_dir}/../../examples/pddl/air-cargo.pddl");
 
     let output = Command::new(env!("CARGO_BIN_EXE_miniplan"))
         .arg("check")
@@ -69,8 +69,8 @@ fn test_cli_check_with_problem_flag() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    eprintln!("test_cli_check_with_problem_flag stderr: {}", stderr);
-    eprintln!("test_cli_check_with_problem_flag stdout: {}", stdout);
+    eprintln!("test_cli_check_with_problem_flag stderr: {stderr}");
+    eprintln!("test_cli_check_with_problem_flag stdout: {stdout}");
     eprintln!("test_cli_check_with_problem_flag exit: {:?}", output.status);
 
     assert!(output.status.success(), "should succeed with --problem");

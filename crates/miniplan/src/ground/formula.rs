@@ -27,7 +27,7 @@ pub fn walk_goal_definition(
                 pos: Vec::new(),
                 neg: Vec::new(),
             }];
-            for g in gds.iter() {
+            for g in gds {
                 let sub = walk_goal_definition(g, bindings)?;
                 results = cartesian_product_dnf(&results, &sub);
             }
@@ -35,7 +35,7 @@ pub fn walk_goal_definition(
         }
         GoalDefinition::Or(gds) => {
             let mut all = Vec::new();
-            for g in gds.iter() {
+            for g in gds {
                 all.extend(walk_goal_definition(g, bindings)?);
             }
             Ok(all)
@@ -105,13 +105,13 @@ fn walk_negated_atomic_formula(
         AtomicFormula::Equality(eq) => {
             let first = term_to_string(eq.first(), bindings);
             let second = term_to_string(eq.second(), bindings);
-            if first != second {
+            if first == second {
+                Ok(vec![])
+            } else {
                 Ok(vec![LiteralSet {
                     pos: Vec::new(),
                     neg: Vec::new(),
                 }])
-            } else {
-                Ok(vec![])
             }
         }
         AtomicFormula::Predicate(pred) => {
@@ -171,8 +171,7 @@ pub(crate) fn term_to_string(term: &Term, bindings: &[(String, String)]) -> Stri
             bindings
                 .iter()
                 .find(|(name, _)| name == &var_name)
-                .map(|(_, val)| val.clone())
-                .unwrap_or_else(|| var_name)
+                .map_or_else(|| var_name, |(_, val)| val.clone())
         }
         Term::Function(ft) => function_term_to_string(ft, bindings),
     }

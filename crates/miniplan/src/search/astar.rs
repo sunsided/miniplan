@@ -64,17 +64,18 @@ pub struct Astar {
 
 impl Astar {
     /// Create a new A* planner with the given heuristic.
+    #[must_use]
     pub fn new(heuristic: Box<dyn Heuristic>) -> Self {
         Astar { heuristic }
     }
 }
 
 impl Planner for Astar {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "astar"
     }
 
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         "A* search with pluggable heuristic"
     }
 
@@ -142,7 +143,7 @@ impl Planner for Astar {
                         continue;
                     }
 
-                    let new_g = node.g_score + op.cost as f64;
+                    let new_g = node.g_score + f64::from(op.cost);
                     let dominated = if let Some(&existing_g) = g_scores.get(&next) {
                         new_g >= existing_g
                     } else {
@@ -181,7 +182,7 @@ fn build_plan(path: &[OpId], task: &Task) -> Plan {
                 op_id,
                 op_name: op.name.clone(),
             });
-            total_cost += op.cost as f64;
+            total_cost += f64::from(op.cost);
         }
     }
     plan.cost = total_cost;

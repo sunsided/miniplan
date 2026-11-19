@@ -80,7 +80,7 @@ pub(crate) fn load_pddl_file_str(s: &str) -> Result<PddlFile, MiniplanError> {
     PddlFile::from_str(s).map_err(|e| MiniplanError::Parse(e.to_string()))
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn load_pddl_file_path(path: &Path) -> Result<PddlFile, MiniplanError> {
     let s = fs::read_to_string(path).map_err(MiniplanError::Io)?;
     load_pddl_file_str(&s)
@@ -370,7 +370,7 @@ mod tests_bundle {
 
     #[test]
     fn test_single_file_with_both() {
-        let content = r#"
+        let content = r"
 (define (domain test-domain)
   (:requirements :strips)
   (:predicates (at ?x))
@@ -381,7 +381,7 @@ mod tests_bundle {
   (:init)
   (:goal (at obj1))
 )
-"#;
+";
         let f = write_pddl(content);
         let bundle = load_pddl_bundle(&[f.path()]).unwrap();
         assert_eq!(bundle.domains.len(), 1);
@@ -392,20 +392,20 @@ mod tests_bundle {
 
     #[test]
     fn test_two_files_separate() {
-        let domain_content = r#"
+        let domain_content = r"
 (define (domain test-domain)
   (:requirements :strips)
   (:predicates (at ?x))
 )
-"#;
-        let problem_content = r#"
+";
+        let problem_content = r"
 (define (problem test-problem)
   (:domain test-domain)
   (:objects)
   (:init)
   (:goal (at obj1))
 )
-"#;
+";
         let f1 = write_pddl(domain_content);
         let f2 = write_pddl(problem_content);
         let bundle = load_pddl_bundle(&[f1.path(), f2.path()]).unwrap();
@@ -415,26 +415,26 @@ mod tests_bundle {
 
     #[test]
     fn test_three_files_mixed() {
-        let domain1 = r#"
+        let domain1 = r"
 (define (domain domain-a)
   (:requirements :strips)
   (:predicates (p ?x))
 )
-"#;
-        let domain2 = r#"
+";
+        let domain2 = r"
 (define (domain domain-b)
   (:requirements :strips)
   (:predicates (q ?x))
 )
-"#;
-        let problem = r#"
+";
+        let problem = r"
 (define (problem prob-1)
   (:domain domain-a)
   (:objects)
   (:init)
   (:goal (p obj1))
 )
-"#;
+";
         let f1 = write_pddl(domain1);
         let f2 = write_pddl(domain2);
         let f3 = write_pddl(problem);
@@ -455,7 +455,13 @@ mod tests_bundle {
         let content = "; just a comment";
         let f = write_pddl(content);
         let bundle = load_pddl_bundle(&[f.path()]).unwrap();
-        assert!(bundle.domains.is_empty());
-        assert!(bundle.problems.is_empty());
+        assert_eq!(
+            bundle.domains,
+            [] as [(std::path::PathBuf, pddl::Domain); 0]
+        );
+        assert_eq!(
+            bundle.problems,
+            [] as [(std::path::PathBuf, pddl::Problem); 0]
+        );
     }
 }

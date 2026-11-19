@@ -12,12 +12,12 @@ fn tui_requires_files() {
 
 #[test]
 fn tui_exits_on_no_problem() {
-    let content = r#"
+    let content = r"
 (define (domain test-domain)
   (:requirements :strips)
   (:predicates (at ?x))
 )
-"#;
+";
     let file = std::env::temp_dir().join("miniplan_test_no_problem.pddl");
     std::fs::write(&file, content).unwrap();
 
@@ -29,14 +29,14 @@ fn tui_exits_on_no_problem() {
 
 #[test]
 fn tui_exits_on_no_domain() {
-    let content = r#"
+    let content = r"
 (define (problem test-problem)
   (:domain test-domain)
   (:objects)
   (:init)
   (:goal (at obj1))
 )
-"#;
+";
     let file = std::env::temp_dir().join("miniplan_test_no_domain.pddl");
     std::fs::write(&file, content).unwrap();
 

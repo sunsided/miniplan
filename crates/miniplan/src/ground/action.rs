@@ -38,7 +38,7 @@ pub fn ground(domain: &Domain, problem: &Problem) -> Result<Task, MiniplanError>
             requirements: domain
                 .requirements()
                 .iter()
-                .map(|r| r.to_string())
+                .map(std::string::ToString::to_string)
                 .collect(),
         },
     };
@@ -67,7 +67,7 @@ fn build_fact_universe(
                 predicate: pred_name.clone(),
                 args: Vec::new(),
             };
-            #[allow(clippy::map_entry)]
+            #[expect(clippy::map_entry)]
             if !fact_index.contains_key(&fact) {
                 let id = FactId(facts.len());
                 facts.push(fact.clone());
@@ -79,14 +79,14 @@ fn build_fact_universe(
     }
 
     let derived_rules = &derived_rules;
-    for rule in derived_rules.rules.iter() {
+    for rule in &derived_rules.rules {
         let arity = rule.params.len();
         if arity == 0 {
             let fact = Fact {
                 predicate: rule.head_name.clone(),
                 args: Vec::new(),
             };
-            #[allow(clippy::map_entry)]
+            #[expect(clippy::map_entry)]
             if !fact_index.contains_key(&fact) {
                 let id = FactId(facts.len());
                 facts.push(fact.clone());
@@ -127,7 +127,7 @@ fn generate_predicate_groundings(
             predicate: pred_name.to_owned(),
             args,
         };
-        #[allow(clippy::map_entry)]
+        #[expect(clippy::map_entry)]
         if !fact_index.contains_key(&fact) {
             let id = FactId(facts.len());
             facts.push(fact.clone());
@@ -156,7 +156,11 @@ fn build_init_state(task: &mut Task, problem: &Problem) -> Result<(), MiniplanEr
         ))) = elem
         {
             let name = pred.predicate().to_string();
-            let args: Vec<String> = pred.values().iter().map(|n| n.to_string()).collect();
+            let args: Vec<String> = pred
+                .values()
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect();
             let fact = Fact {
                 predicate: name,
                 args,
@@ -261,7 +265,7 @@ fn ground_action(task: &mut Task, action: &ActionDefinition) -> Result<(), Minip
             continue;
         }
 
-        for literals in dnf.iter() {
+        for literals in &dnf {
             let (pre_pos, pre_neg) = build_state_from_literals(literals, task)?;
 
             let effects = action.effect();
@@ -310,7 +314,7 @@ fn generate_bindings(
 
     let mut results = Vec::new();
     let mut indices = vec![0usize; params.len()];
-    let counts: Vec<usize> = param_objects.iter().map(|v| v.len()).collect();
+    let counts: Vec<usize> = param_objects.iter().map(std::vec::Vec::len).collect();
 
     if counts.contains(&0) {
         return Ok(results);
@@ -344,7 +348,6 @@ fn type_to_string(t: &pddl::Type) -> String {
         pddl::Type::Exactly(pt) => pt.to_string(),
         pddl::Type::EitherOf(pts) => pts
             .first()
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "object".to_owned()),
+            .map_or_else(|| "object".to_owned(), std::string::ToString::to_string),
     }
 }

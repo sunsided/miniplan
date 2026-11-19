@@ -18,7 +18,7 @@ use crate::task::{State, Task};
 pub struct GoalCountHeuristic;
 
 impl Heuristic for GoalCountHeuristic {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "goal-count"
     }
 
@@ -29,6 +29,6 @@ impl Heuristic for GoalCountHeuristic {
                 count += 1;
             }
         }
-        HValue(count as f64)
+        HValue(f64::from(count))
     }
 }

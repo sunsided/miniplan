@@ -89,17 +89,18 @@ pub struct BiDij {}
 
 impl BiDij {
     /// Create a new bidirectional Dijkstra planner.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 }
 
 impl Planner for BiDij {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "bidij"
     }
 
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         "Bidirectional Dijkstra (cost-aware)"
     }
 
@@ -284,7 +285,7 @@ impl Planner for BiDij {
                 for op in &task.operators {
                     if state.applicable(op) {
                         let next = state.apply(op);
-                        let new_g = g + op.cost as f64;
+                        let new_g = g + f64::from(op.cost);
                         if new_g < *forward_g.get(&next).unwrap_or(&f64::INFINITY) {
                             forward_g.insert(next.clone(), new_g);
                             forward_parent.insert(next.clone(), (Some(state.clone()), op.id));
@@ -369,7 +370,7 @@ impl Planner for BiDij {
                             g_neg_new.0.set(bit, true);
                         }
                         let new_sg = (g_pos_new, g_neg_new);
-                        let new_g = g + op.cost as f64;
+                        let new_g = g + f64::from(op.cost);
                         if new_g < *backward_g.get(&new_sg).unwrap_or(&f64::INFINITY) {
                             backward_g.insert(new_sg.clone(), new_g);
                             backward_parent.insert(
@@ -406,7 +407,7 @@ fn build_plan_from_ops(ops: &[OpId], task: &Task) -> Plan {
                 op_id,
                 op_name: op.name.clone(),
             });
-            total_cost += op.cost as f64;
+            total_cost += f64::from(op.cost);
         }
     }
     plan.cost = total_cost;
@@ -466,7 +467,7 @@ mod tests {
         let mut fact_index = FxHashMap::default();
         for i in 0..num_facts {
             let fact = Fact {
-                predicate: format!("f{}", i),
+                predicate: format!("f{i}"),
                 args: vec![],
             };
             let id = FactId(i);

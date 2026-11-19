@@ -11,7 +11,7 @@ pub enum OutputFormat {
 pub fn write_plan(plan: &Plan, format: &OutputFormat, output: &str) -> Result<()> {
     let text = match format {
         OutputFormat::Plain | OutputFormat::Ipc => {
-            format!("{}", plan)
+            format!("{plan}")
         }
         OutputFormat::Json => {
             let steps: Vec<&str> = plan.steps.iter().map(|s| s.op_name.as_str()).collect();
@@ -25,7 +25,7 @@ pub fn write_plan(plan: &Plan, format: &OutputFormat, output: &str) -> Result<()
     };
 
     if output == "-" {
-        print!("{}", text);
+        print!("{text}");
     } else {
         std::fs::write(output, text).context("Failed to write plan file")?;
     }

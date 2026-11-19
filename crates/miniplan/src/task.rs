@@ -48,6 +48,7 @@ pub struct TypeHierarchy {
 
 impl TypeHierarchy {
     /// Create an empty type hierarchy.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -57,6 +58,7 @@ impl TypeHierarchy {
     /// Walks the supertype chain iteratively with a cycle guard, so a
     /// malformed hierarchy (self-loop or cycle) returns `false` instead of
     /// overflowing the stack.
+    #[must_use]
     pub fn is_subtype_of(&self, child: &str, parent: &str) -> bool {
         if parent == "object" {
             return true;
@@ -116,11 +118,13 @@ pub struct State(pub FixedBitSet);
 
 impl State {
     /// Create a new state with the given number of facts.
+    #[must_use]
     pub fn new(size: usize) -> Self {
         State(FixedBitSet::with_capacity(size))
     }
 
     /// Create an empty state (zero capacity).
+    #[must_use]
     pub fn empty() -> Self {
         State(FixedBitSet::new())
     }
@@ -131,21 +135,25 @@ impl State {
     }
 
     /// Check if a fact is true in this state.
+    #[must_use]
     pub fn contains(&self, id: FactId) -> bool {
         self.0.contains(id.0)
     }
 
     /// Returns the number of bits in the bitset.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
     /// Returns `true` if the bitset has zero capacity.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
     /// Check if an operator's preconditions are satisfied in this state.
+    #[must_use]
     pub fn applicable(&self, op: &Operator) -> bool {
         for bit in op.pre_pos.0.ones() {
             if !self.0.contains(bit) {
@@ -161,6 +169,7 @@ impl State {
     }
 
     /// Apply an operator to produce the resulting state.
+    #[must_use]
     pub fn apply(&self, op: &Operator) -> Self {
         let mut next = self.clone();
         for bit in op.add.0.ones() {
@@ -185,6 +194,7 @@ impl State {
     }
 
     /// Check if this state satisfies the given goal specification.
+    #[must_use]
     pub fn satisfies(&self, goal_pos: &State, goal_neg: &State) -> bool {
         for bit in goal_pos.0.ones() {
             if !self.0.contains(bit) {
@@ -282,11 +292,13 @@ pub struct Task {
 
 impl Task {
     /// Look up the ID of a fact.
+    #[must_use]
     pub fn fact_id(&self, fact: &Fact) -> Option<FactId> {
         self.fact_index.get(fact).copied()
     }
 
     /// Returns the total number of facts in this task.
+    #[must_use]
     pub fn num_facts(&self) -> usize {
         self.facts.len()
     }

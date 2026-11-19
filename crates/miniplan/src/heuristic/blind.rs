@@ -18,7 +18,7 @@ use crate::task::{State, Task};
 pub struct BlindHeuristic;
 
 impl Heuristic for BlindHeuristic {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "blind"
     }
 

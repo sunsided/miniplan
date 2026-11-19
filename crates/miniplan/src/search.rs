@@ -2,7 +2,7 @@
 //!
 //! This module provides a collection of search algorithms (planners) for solving
 //! PDDL planning tasks. It includes unidirectional planners like BFS and A*,
-//! as well as bidirectional planners like BiDij, NBS, and BAE*.
+//! as well as bidirectional planners like `BiDij`, NBS, and BAE*.
 //!
 //! # Entry points
 //!
@@ -73,6 +73,7 @@ impl HValue {
     pub const INFINITY: HValue = HValue(f64::INFINITY);
 
     /// Returns `true` if this value is finite (not infinity or NaN).
+    #[must_use]
     pub fn is_finite(&self) -> bool {
         self.0.is_finite()
     }
@@ -218,7 +219,7 @@ pub trait Planner: Send {
     fn name(&self) -> &str;
 
     /// A short description of the algorithm.
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         ""
     }
 
@@ -284,6 +285,7 @@ pub struct Registry {
 
 impl Registry {
     /// Create a registry populated with all built-in planners and heuristics.
+    #[must_use]
     pub fn with_builtins() -> Self {
         let mut r = Self {
             planners: rustc_hash::FxHashMap::default(),
@@ -359,8 +361,7 @@ impl Registry {
                 let h_name = cfg
                     .opts
                     .get("heuristic")
-                    .map(|s| s.as_str())
-                    .unwrap_or("hff");
+                    .map_or("hff", std::string::String::as_str);
                 let h: Box<dyn crate::search::Heuristic> = match h_name {
                     "hadd" => Box::new(HAdd),
                     "hmax" => Box::new(HMax),
@@ -383,8 +384,7 @@ impl Registry {
                 let h_name = cfg
                     .opts
                     .get("heuristic")
-                    .map(|s| s.as_str())
-                    .unwrap_or("hff");
+                    .map_or("hff", std::string::String::as_str);
                 let h: Box<dyn crate::search::Heuristic> = match h_name {
                     "hadd" => Box::new(HAdd),
                     "hmax" => Box::new(HMax),
@@ -502,6 +502,7 @@ impl Default for Solver {
 
 impl Solver {
     /// Create a new solver with the built-in registry.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -586,6 +587,7 @@ impl std::str::FromStr for PlannerKind {
 
 impl PlannerKind {
     /// Returns the registry name for this planner kind.
+    #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
             PlannerKind::Bfs => "bfs",
@@ -620,6 +622,7 @@ pub struct PlannerChoice {
 
 impl PlannerChoice {
     /// Create a new planner choice with just a planner kind.
+    #[must_use]
     pub fn new(kind: PlannerKind) -> Self {
         Self {
             kind,

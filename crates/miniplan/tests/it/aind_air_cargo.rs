@@ -6,7 +6,7 @@ use pddl::Parser;
 
 const AIR_CARGO_SRC: &str = include_str!("../../../../examples/pddl/air-cargo.pddl");
 
-const TWO_DOMAIN_FIXTURE: &str = r#"
+const TWO_DOMAIN_FIXTURE: &str = r"
 (define (domain domain-a)
     (:requirements :strips)
     (:predicates (p))
@@ -22,7 +22,7 @@ const TWO_DOMAIN_FIXTURE: &str = r#"
     (:init (p))
     (:goal (p))
 )
-"#;
+";
 
 #[test]
 fn test_aind_multi_problem_parse() {
@@ -65,7 +65,7 @@ fn test_multi_domain_errors() {
 
 fn solve_with_ff(src: &str, problem_name: &str) -> usize {
     let (domain, problem) = load_combined_str_named(src, None, Some(problem_name))
-        .unwrap_or_else(|e| panic!("{} should load: {}", problem_name, e));
+        .unwrap_or_else(|e| panic!("{problem_name} should load: {e}"));
     let task = ground(&domain, &problem).expect("grounding should succeed");
 
     let mut planner = Astar::new(Box::new(HFF));
@@ -79,12 +79,12 @@ fn solve_with_ff(src: &str, problem_name: &str) -> usize {
     match outcome {
         miniplan::search::SearchOutcome::Plan(plan, _stats) => plan.len(),
         miniplan::search::SearchOutcome::Unsolvable(_) => {
-            panic!("{} should be solvable", problem_name)
+            panic!("{problem_name} should be solvable")
         }
         miniplan::search::SearchOutcome::LimitReached(_) => {
-            panic!("{} hit search limits", problem_name)
+            panic!("{problem_name} hit search limits")
         }
-        _ => panic!("unknown outcome for {}", problem_name),
+        _ => panic!("unknown outcome for {problem_name}"),
     }
 }
 

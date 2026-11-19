@@ -42,7 +42,7 @@ fn extract_numeric_value(exp: &FluentExpression) -> Option<u32> {
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub fn has_action_costs_metric(problem: &Problem) -> bool {
     if let Some(metric) = problem.metric_spec() {
         matches!(metric.optimization(), Optimization::Minimize)

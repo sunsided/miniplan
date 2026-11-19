@@ -153,7 +153,7 @@ fn main() -> Result<()> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn cmd_solve(
     inputs: &[PathBuf],
     domain_name: Option<&str>,
@@ -189,7 +189,7 @@ fn cmd_solve(
         memory_mb: None,
     };
 
-    let kind: PlannerKind = planner_name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let kind: PlannerKind = planner_name.parse().map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let mut config = PlannerConfig::default();
     config

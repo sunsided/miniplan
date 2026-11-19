@@ -3,7 +3,7 @@ use miniplan::heuristic::HFF;
 use miniplan::pddl_io::{load_domain_str, load_problem_str};
 use miniplan::search::{Astar, Planner, SearchLimits, SearchOutcome};
 
-const DOMAIN: &str = r#"
+const DOMAIN: &str = r"
 (define (domain simple-test)
     (:requirements :strips :typing)
     (:types room ball)
@@ -27,9 +27,9 @@ const DOMAIN: &str = r#"
         :precondition (holding ?b)
         :effect (and (free) (at-ball ?b ?r) (not (holding ?b))))
 )
-"#;
+";
 
-const PROBLEM: &str = r#"
+const PROBLEM: &str = r"
 (define (problem simple-test-1)
     (:domain simple-test)
     (:objects r1 r2 - room
@@ -37,7 +37,7 @@ const PROBLEM: &str = r#"
     (:init (at r1) (at-ball b1 r1) (free))
     (:goal (and (at r2) (at-ball b1 r2)))
 )
-"#;
+";
 
 fn main() {
     let domain = load_domain_str(DOMAIN).expect("domain parses");
@@ -65,7 +65,7 @@ fn main() {
             println!("  Nodes expanded: {}", stats.nodes_expanded);
             println!("  Time: {:?}", stats.elapsed);
             println!();
-            print!("{}", plan);
+            print!("{plan}");
         }
         SearchOutcome::Unsolvable(_) => {
             println!("Problem is unsolvable.");

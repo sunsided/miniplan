@@ -108,7 +108,7 @@ fn render_domain_panel(frame: &mut Frame, app: &mut App, area: Rect) {
             let name = domain.name().to_string();
             let count = app.problem_count_for_domain(&name);
             let display_name = if app.duplicated_domains.contains(&name) {
-                format!("{}*", name)
+                format!("{name}*")
             } else {
                 name
             };
@@ -120,7 +120,7 @@ fn render_domain_panel(frame: &mut Frame, app: &mut App, area: Rect) {
                     if count == 1 { "" } else { "s" }
                 )
             } else {
-                format!("{} (0 problems)", display_name)
+                format!("{display_name} (0 problems)")
             };
             let style = if count > 0 {
                 Style::default().fg(Color::White)
@@ -295,7 +295,7 @@ fn render_solver_config(frame: &mut Frame, app: &mut App, outer: Rect, chunks: &
     let lines = vec![
         Line::from(vec![
             Span::styled(
-                format!("Timeout:{} ", timeout_hint),
+                format!("Timeout:{timeout_hint} "),
                 Style::default()
                     .fg(if is_timeout_focused {
                         Color::Cyan
@@ -323,7 +323,7 @@ fn render_solver_config(frame: &mut Frame, app: &mut App, outer: Rect, chunks: &
         ]),
         Line::from(vec![
             Span::styled(
-                format!("Max Nodes:{} ", maxnodes_hint),
+                format!("Max Nodes:{maxnodes_hint} "),
                 Style::default()
                     .fg(if is_maxnodes_focused {
                         Color::Cyan
@@ -351,7 +351,7 @@ fn render_solver_config(frame: &mut Frame, app: &mut App, outer: Rect, chunks: &
         ]),
         Line::from(vec![
             Span::styled(
-                format!("Output:{} ", outputpath_hint),
+                format!("Output:{outputpath_hint} "),
                 Style::default()
                     .fg(if is_outputpath_focused {
                         Color::Cyan
@@ -651,7 +651,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
     frame.render_widget(Clear, modal_area);
 
     let block = Block::default()
-        .title(format!(" {} ", title))
+        .title(format!(" {title} "))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
     frame.render_widget(&block, modal_area);

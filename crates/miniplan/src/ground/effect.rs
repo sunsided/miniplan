@@ -129,8 +129,7 @@ fn term_to_string(term: &Term, bindings: &[(String, String)]) -> String {
             bindings
                 .iter()
                 .find(|(name, _)| name == &var_name)
-                .map(|(_, val)| val.clone())
-                .unwrap_or_else(|| var_name)
+                .map_or_else(|| var_name, |(_, val)| val.clone())
         }
         Term::Function(ft) => function_term_to_string(ft, bindings),
     }

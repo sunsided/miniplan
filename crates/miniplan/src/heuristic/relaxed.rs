@@ -48,7 +48,7 @@ pub struct HMax;
 pub struct HFF;
 
 impl Heuristic for HAdd {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "hadd"
     }
 
@@ -63,7 +63,7 @@ impl Heuristic for HAdd {
 }
 
 impl Heuristic for HMax {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "hmax"
     }
 
@@ -78,7 +78,7 @@ impl Heuristic for HMax {
 }
 
 impl Heuristic for HFF {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "hff"
     }
 
@@ -94,13 +94,13 @@ impl Heuristic for HFF {
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 struct RpgLevel {
     facts: Vec<FactId>,
     applicable_ops: Vec<usize>,
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 struct RpgResult {
     fact_cost: Vec<f64>,
     achiever: Vec<Option<usize>>,
@@ -142,7 +142,8 @@ fn build_rpg(task: &Task, state: &State) -> RpgResult {
                     0.0
                 };
 
-                let cost = op.cost as f64 + op.pre_pos.0.ones().map(|b| fact_cost[b]).sum::<f64>();
+                let cost =
+                    f64::from(op.cost) + op.pre_pos.0.ones().map(|b| fact_cost[b]).sum::<f64>();
 
                 for bit in op.add.0.ones() {
                     if cost < fact_cost[bit] {
@@ -230,7 +231,7 @@ fn extract_relaxed_plan_cost(task: &Task, rpg: &RpgResult) -> f64 {
         {
             marked_ops.insert(op_idx);
             if let Some(op) = task.operators.get(op_idx) {
-                total_cost += op.cost as f64;
+                total_cost += f64::from(op.cost);
                 for pre_bit in op.pre_pos.0.ones() {
                     if !visited.contains(&FactId(pre_bit)) {
                         goals_to_achieve.push(FactId(pre_bit));
@@ -275,7 +276,7 @@ pub(crate) fn rpg_backward_fact_costs(task: &Task, goal_pos: &State, goal_neg: &
             if !all_finite {
                 continue;
             }
-            let op_total = max_add_cost + op.cost as f64;
+            let op_total = max_add_cost + f64::from(op.cost);
             for p in op.pre_pos.0.ones() {
                 if op_total < back_cost[p] {
                     back_cost[p] = op_total;
@@ -305,7 +306,7 @@ mod tests {
         let mut fact_index = FxHashMap::default();
         for i in 0..num_facts {
             let fact = Fact {
-                predicate: format!("f{}", i),
+                predicate: format!("f{i}"),
                 args: vec![],
             };
             let id = FactId(i);

@@ -3,7 +3,7 @@ use miniplan::heuristic::{BlindHeuristic, HFF};
 use miniplan::pddl_io::{load_domain_str, load_problem_str};
 use miniplan::search::{Astar, Bfs, Planner, SearchLimits, SearchOutcome};
 
-const DOMAIN: &str = r#"
+const DOMAIN: &str = r"
 (define (domain briefcase-world)
     (:requirements :strips :equality :typing :conditional-effects)
     (:types location physob)
@@ -26,9 +26,9 @@ const DOMAIN: &str = r#"
         :precondition (and (in ?x) (at B ?l))
         :effect (not (in ?x)))
 )
-"#;
+";
 
-const PROBLEM: &str = r#"
+const PROBLEM: &str = r"
 (define (problem get-paid)
     (:domain briefcase-world)
     (:objects home office - location
@@ -36,7 +36,7 @@ const PROBLEM: &str = r#"
     (:init (at B home) (at P home) (at D home) (in P))
     (:goal (and (at B office) (at D home) (at P home)))
 )
-"#;
+";
 
 fn main() {
     let domain = load_domain_str(DOMAIN).expect("domain parses");
@@ -68,7 +68,7 @@ fn solve_with<P: Planner>(planner: &mut P, task: &miniplan::task::Task, limits: 
                 "  Plan found: {} steps, cost {:.2}, expanded {} nodes in {:?}",
                 stats.plan_length, stats.plan_cost, stats.nodes_expanded, stats.elapsed
             );
-            print!("{}", plan);
+            print!("{plan}");
         }
         SearchOutcome::Unsolvable(_) => {
             println!("  Unsolvable.");

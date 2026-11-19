@@ -17,7 +17,7 @@ pub(crate) struct DerivedRule {
 #[derive(Debug)]
 pub(crate) struct DerivedRuleSet {
     pub rules: Vec<DerivedRule>,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub all_static: bool,
 }
 
@@ -42,8 +42,7 @@ pub(crate) fn collect(domain: &Domain) -> Result<DerivedRuleSet, MiniplanError> 
 
             if fluent_names.contains(&head_name) {
                 return Err(MiniplanError::Ground(format!(
-                    "derived predicate `{}` appears in action effects; derived predicates cannot be fluents",
-                    head_name
+                    "derived predicate `{head_name}` appears in action effects; derived predicates cannot be fluents"
                 )));
             }
 
@@ -63,8 +62,7 @@ pub(crate) fn collect(domain: &Domain) -> Result<DerivedRuleSet, MiniplanError> 
             for bp in &body_pred_names {
                 if bp == &head_name {
                     return Err(MiniplanError::Ground(format!(
-                        "derived predicate `{}` references itself; recursive derived predicates are not supported",
-                        head_name
+                        "derived predicate `{head_name}` references itself; recursive derived predicates are not supported"
                     )));
                 }
             }
@@ -72,8 +70,7 @@ pub(crate) fn collect(domain: &Domain) -> Result<DerivedRuleSet, MiniplanError> 
             for dp_name in &body_pred_names {
                 if derived_head_names.contains(dp_name) && dp_name != &head_name {
                     return Err(MiniplanError::Ground(format!(
-                        "derived predicate `{}` references another derived predicate `{}`; multi-layer derived predicates are not yet supported",
-                        head_name, dp_name
+                        "derived predicate `{head_name}` references another derived predicate `{dp_name}`; multi-layer derived predicates are not yet supported"
                     )));
                 }
             }
@@ -81,8 +78,7 @@ pub(crate) fn collect(domain: &Domain) -> Result<DerivedRuleSet, MiniplanError> 
             for fp in &body_pred_names {
                 if fluent_names.contains(fp) {
                     return Err(MiniplanError::Ground(format!(
-                        "derived predicate `{}` references fluent predicate `{}`; only static-body derived predicates are supported",
-                        head_name, fp
+                        "derived predicate `{head_name}` references fluent predicate `{fp}`; only static-body derived predicates are supported"
                     )));
                 }
             }
@@ -205,8 +201,7 @@ fn type_to_string(t: &Type) -> String {
         Type::Exactly(pt) => pt.to_string(),
         Type::EitherOf(pts) => pts
             .first()
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "object".to_owned()),
+            .map_or_else(|| "object".to_owned(), std::string::ToString::to_string),
     }
 }
 
@@ -263,14 +258,14 @@ pub(crate) fn expand_into_init_with_rules(
 }
 
 fn add_derived_fact(task: &mut Task, fact: &Fact) {
-    #[allow(clippy::map_entry)]
-    if !task.fact_index.contains_key(fact) {
+    #[expect(clippy::map_entry)]
+    if task.fact_index.contains_key(fact) {
+        let id = *task.fact_index.get(fact).unwrap();
+        task.init.set(id, true);
+    } else {
         let id = FactId(task.facts.len());
         task.facts.push(fact.clone());
         task.fact_index.insert(fact.clone(), id);
-        task.init.set(id, true);
-    } else {
-        let id = *task.fact_index.get(fact).unwrap();
         task.init.set(id, true);
     }
 }
@@ -291,7 +286,7 @@ fn generate_bindings_for_params(
 
     let mut results = Vec::new();
     let mut indices = vec![0usize; params.len()];
-    let counts: Vec<usize> = param_objects.iter().map(|v| v.len()).collect();
+    let counts: Vec<usize> = param_objects.iter().map(std::vec::Vec::len).collect();
 
     if counts.contains(&0) {
         return Ok(results);
@@ -489,7 +484,7 @@ mod tests {
 
     #[test]
     fn derived_static_expands_to_facts() {
-        let domain = r#"
+        let domain = r"
 (define (domain test-derived)
   (:requirements :strips :typing :derived-predicates)
   (:types obj - object)
@@ -501,15 +496,15 @@ mod tests {
     :effect (done)
   )
 )
-"#;
-        let problem = r#"
+";
+        let problem = r"
 (define (problem test-derived-1)
   (:domain test-derived)
   (:objects a - obj)
   (:init (color a))
   (:goal (done))
 )
-"#;
+";
         let task = ground_task(domain, problem);
 
         let red_a = Fact {
@@ -532,7 +527,7 @@ mod tests {
 
     #[test]
     fn derived_with_exists_and_equality() {
-        let domain = r#"
+        let domain = r"
 (define (domain mini-can)
   (:requirements :strips :typing :derived-predicates)
   (:types disc - location)
@@ -554,9 +549,9 @@ mod tests {
     :effect (done)
   )
 )
-"#;
+";
 
-        let problem = r#"
+        let problem = r"
 (define (problem mini-can-1)
   (:domain mini-can)
   (:objects d1 d2 - disc peg1 peg2 - location)
@@ -568,7 +563,7 @@ mod tests {
   )
   (:goal (done))
 )
-"#;
+";
         let task = ground_task(domain, problem);
 
         let can_place_d1_peg1 = Fact {
@@ -605,7 +600,7 @@ mod tests {
 
     #[test]
     fn derived_rejects_fluent_body() {
-        let domain = r#"
+        let domain = r"
 (define (domain fluent-body)
   (:requirements :strips :typing :derived-predicates)
   (:predicates (base ?x - obj) (fluent ?x - obj))
@@ -616,52 +611,50 @@ mod tests {
     :effect (and (fluent ?x))
   )
 )
-"#;
-        let problem = r#"
+";
+        let problem = r"
 (define (problem fluent-body-1)
   (:domain fluent-body)
   (:objects a - obj)
   (:init (base a))
   (:goal (base a))
 )
-"#;
+";
         let domain = parse_domain(domain);
         let problem = parse_problem(problem);
         let err = crate::ground::ground(&domain, &problem).expect_err("should fail");
         let msg = err.to_string();
         assert!(
             msg.contains("fluent"),
-            "error should mention the fluent predicate, got: {}",
-            msg
+            "error should mention the fluent predicate, got: {msg}"
         );
     }
 
     #[test]
     fn derived_rejects_recursive_reference() {
-        let domain = r#"
+        let domain = r"
 (define (domain recursive-derived)
   (:requirements :strips :typing :derived-predicates)
   (:predicates (base ?x - obj))
   (:derived (intermediate ?x - obj) (base ?x))
   (:derived (top ?x - obj) (intermediate ?x))
 )
-"#;
-        let problem = r#"
+";
+        let problem = r"
 (define (problem recursive-1)
   (:domain recursive-derived)
   (:objects a - obj)
   (:init (base a))
   (:goal (base a))
 )
-"#;
+";
         let domain = parse_domain(domain);
         let problem = parse_problem(problem);
         let err = crate::ground::ground(&domain, &problem).expect_err("should fail");
         let msg = err.to_string();
         assert!(
             msg.contains("multi-layer") || msg.contains("intermediate"),
-            "error should mention multi-layer or the derived predicate, got: {}",
-            msg
+            "error should mention multi-layer or the derived predicate, got: {msg}"
         );
     }
 }

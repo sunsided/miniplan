@@ -62,17 +62,18 @@ pub struct Gbfs {
 
 impl Gbfs {
     /// Create a new GBFS planner with the given heuristic.
+    #[must_use]
     pub fn new(heuristic: Box<dyn Heuristic>) -> Self {
         Gbfs { heuristic }
     }
 }
 
 impl Planner for Gbfs {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "gbfs"
     }
 
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         "Greedy best-first search"
     }
 
@@ -142,7 +143,7 @@ impl Planner for Gbfs {
                             h_score: h,
                             state: next,
                             path: new_path,
-                            g_score: node.g_score + op.cost as f64,
+                            g_score: node.g_score + f64::from(op.cost),
                         });
                     }
                 }
@@ -163,7 +164,7 @@ fn build_plan(path: &[OpId], task: &Task) -> Plan {
                 op_id,
                 op_name: op.name.clone(),
             });
-            total_cost += op.cost as f64;
+            total_cost += f64::from(op.cost);
         }
     }
     plan.cost = total_cost;

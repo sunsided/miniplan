@@ -72,7 +72,6 @@ fn type_to_string(t: &Type) -> String {
         Type::Exactly(pt) => pt.to_string(),
         Type::EitherOf(pts) => pts
             .first()
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "object".to_owned()),
+            .map_or_else(|| "object".to_owned(), std::string::ToString::to_string),
     }
 }
