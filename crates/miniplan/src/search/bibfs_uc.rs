@@ -1,3 +1,9 @@
+//! Bidirectional breadth-first search ([`BibfsUc`]), uniform-cost by step count.
+//!
+//! Each round expands one full layer forward (complete states from the initial state), then
+//! one full layer backward ([`Subgoal`]s regressed from the goal). Every newly generated node
+//! is checked against all closed nodes of the other side, and the first match ends the search.
+
 // Note: for cost-aware bidirectional search, use the `bidij` planner
 // (Bidirectional Dijkstra). NBS is implemented in `search::nbs`; BAE* is
 // implemented in `search::bae`.
@@ -5,16 +11,16 @@
 // TODO(perf): per-FactId bucket index to avoid O(|F|·|B|) scan
 
 use std::collections::VecDeque;
-use std::time::Instant;
-
-use rustc_hash::FxHashMap;
+use std::mem;
 
 use crate::error::MiniplanError;
-use crate::plan::{Plan, PlanStep};
+use crate::plan::Plan;
+use crate::search::outcome::{
+    Budget, ParentMap, ROOT_OP, plan_through, reject_conditional_effects,
+};
+use crate::search::regression::{Subgoal, can_regress, regress};
 use crate::search::{Planner, PlannerCapabilities, SearchLimits, SearchOutcome, SearchStats, Task};
-use crate::task::{OpId, Operator, State};
-
-type SubgoalKey = (State, State);
+use crate::task::State;
 
 /// Bidirectional breadth-first search (uniform-cost).
 ///
@@ -54,349 +60,226 @@ impl Planner for BibfsUc {
         PlannerCapabilities::CLASSICAL | PlannerCapabilities::NEGATIVE_PRECONDS
     }
 
+    /// Runs bidirectional breadth-first search on `task`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MiniplanError::UnsupportedConditionalEffects`] if any operator has a
+    /// conditional effect, since regression through them is not supported.
     fn solve(
         &mut self,
         task: &Task,
         limits: &SearchLimits,
     ) -> Result<SearchOutcome, MiniplanError> {
-        let start = Instant::now();
-        let mut stats = SearchStats::default();
-
-        for op in &task.operators {
-            if !op.conditional.is_empty() {
-                return Err(MiniplanError::UnsupportedConditionalEffects);
-            }
-        }
+        let budget = Budget::start(limits);
+        reject_conditional_effects(task)?;
 
         if task.init.satisfies(&task.goal_pos, &task.goal_neg) {
-            stats.elapsed = start.elapsed();
-            return Ok(SearchOutcome::Plan(Plan::new(), stats));
+            return Ok(budget.plan(Plan::new(), SearchStats::default()));
         }
 
-        let num_facts = task.num_facts();
+        Ok(Search::new(task, budget).run())
+    }
+}
 
-        let mut forward_queue: VecDeque<State> = VecDeque::new();
-        let mut forward_closed: FxHashMap<State, (Option<State>, OpId)> = FxHashMap::default();
+/// The state of one bidirectional breadth-first run.
+struct Search<'a> {
+    /// The task being solved.
+    task: &'a Task,
+    /// Limits and clock of this run.
+    budget: Budget<'a>,
+    /// Counters reported with the outcome. `nodes_generated` stays `0`.
+    stats: SearchStats,
+    /// Forward states of the next layer to expand, in generation order.
+    forward_queue: VecDeque<State>,
+    /// Every forward state generated so far, with its parent link.
+    forward_closed: ParentMap<State>,
+    /// Backward subgoals of the next layer to expand, in generation order.
+    backward_queue: VecDeque<Subgoal>,
+    /// Every backward subgoal generated so far, with its parent link.
+    backward_closed: ParentMap<Subgoal>,
+}
 
-        forward_queue.push_back(task.init.clone());
-        forward_closed.insert(task.init.clone(), (None, OpId(usize::MAX)));
+impl<'a> Search<'a> {
+    /// Opens both search roots: the initial state forward and the goal backward.
+    fn new(task: &'a Task, budget: Budget<'a>) -> Self {
+        let goal = (task.goal_pos.clone(), task.goal_neg.clone());
+        let mut search = Self {
+            task,
+            budget,
+            stats: SearchStats::default(),
+            forward_queue: VecDeque::new(),
+            forward_closed: ParentMap::default(),
+            backward_queue: VecDeque::new(),
+            backward_closed: ParentMap::default(),
+        };
 
-        let init_subgoal = (task.goal_pos.clone(), task.goal_neg.clone());
-        let mut backward_queue: VecDeque<SubgoalKey> = VecDeque::new();
-        let mut backward_closed: FxHashMap<SubgoalKey, (Option<SubgoalKey>, OpId)> =
-            FxHashMap::default();
+        search.forward_queue.push_back(task.init.clone());
+        search
+            .forward_closed
+            .insert(task.init.clone(), (None, ROOT_OP));
+        search.backward_queue.push_back(goal.clone());
+        search.backward_closed.insert(goal, (None, ROOT_OP));
 
-        backward_queue.push_back(init_subgoal.clone());
-        backward_closed.insert(init_subgoal, (None, OpId(usize::MAX)));
+        search
+    }
 
+    /// Alternates forward and backward layers until a meet, a limit or forward exhaustion
+    /// ends the search.
+    fn run(mut self) -> SearchOutcome {
         loop {
-            let forward_empty = forward_queue.is_empty();
-            let backward_empty = backward_queue.is_empty();
-
             // Every forward state is checked against all backward subgoals, the goal itself
             // included, when it is generated. Once forward runs dry no reachable state
             // satisfies the goal. Backward regression alone may never run dry.
-            if forward_empty {
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::Unsolvable(stats));
+            if self.forward_queue.is_empty() {
+                return self.budget.unsolvable(self.stats);
             }
 
-            if !forward_empty {
-                let layer_size = forward_queue.len();
-                let mut new_forward: Vec<State> = Vec::new();
-
-                for _ in 0..layer_size {
-                    let state = forward_queue.pop_front().unwrap();
-                    stats.nodes_expanded += 1;
-
-                    if let Some(max_nodes) = limits.node_budget
-                        && stats.nodes_expanded >= max_nodes
-                    {
-                        stats.elapsed = start.elapsed();
-                        return Ok(SearchOutcome::LimitReached(stats));
-                    }
-                    if let Some(timeout) = limits.time_budget
-                        && start.elapsed() >= timeout
-                    {
-                        stats.elapsed = start.elapsed();
-                        return Ok(SearchOutcome::LimitReached(stats));
-                    }
-
-                    for op in &task.operators {
-                        if state.applicable(op) {
-                            let next = state.apply(op);
-                            if !forward_closed.contains_key(&next) {
-                                forward_closed.insert(next.clone(), (Some(state.clone()), op.id));
-                                new_forward.push(next);
-                            }
-                        }
-                    }
-                }
-
-                for s in &new_forward {
-                    forward_queue.push_back(s.clone());
-                    if let Some(plan) =
-                        check_meet_from_forward(s, &backward_closed, &forward_closed, task)
-                    {
-                        stats.plan_cost = plan.cost;
-                        stats.plan_length = plan.len();
-                        stats.elapsed = start.elapsed();
-                        return Ok(SearchOutcome::Plan(plan, stats));
-                    }
-                }
+            if let Some(outcome) = self.expand_forward_layer() {
+                return outcome;
             }
 
-            if !backward_empty {
-                let layer_size = backward_queue.len();
-                let mut new_backward: Vec<SubgoalKey> = Vec::new();
+            if !self.backward_queue.is_empty()
+                && let Some(outcome) = self.expand_backward_layer()
+            {
+                return outcome;
+            }
+        }
+    }
 
-                for _ in 0..layer_size {
-                    let (g_pos, g_neg) = backward_queue.pop_front().unwrap();
-                    stats.nodes_expanded += 1;
+    /// Expands every queued forward state, then checks the new layer for a meet.
+    ///
+    /// Returns the outcome if a limit is hit or a meet is found.
+    fn expand_forward_layer(&mut self) -> Option<SearchOutcome> {
+        let mut layer = Vec::new();
+        for _ in 0..self.forward_queue.len() {
+            let state = self
+                .forward_queue
+                .pop_front()
+                .expect("loop runs once per queued state");
+            self.stats.nodes_expanded += 1;
+            if self.budget.exhausted(&self.stats) {
+                return Some(self.budget.limit_reached(mem::take(&mut self.stats)));
+            }
 
-                    if let Some(max_nodes) = limits.node_budget
-                        && stats.nodes_expanded >= max_nodes
-                    {
-                        stats.elapsed = start.elapsed();
-                        return Ok(SearchOutcome::LimitReached(stats));
-                    }
-                    if let Some(timeout) = limits.time_budget
-                        && start.elapsed() >= timeout
-                    {
-                        stats.elapsed = start.elapsed();
-                        return Ok(SearchOutcome::LimitReached(stats));
-                    }
+            self.generate_forward(&state, &mut layer);
+        }
 
-                    for op in &task.operators {
-                        if is_relevant(op, &g_pos, &g_neg) && is_consistent(op, &g_pos, &g_neg) {
-                            let mut g_pos_new = State::new(num_facts);
-                            let mut g_neg_new = State::new(num_facts);
-                            for bit in g_pos.0.ones() {
-                                if !op.add.0.contains(bit) {
-                                    g_pos_new.0.set(bit, true);
-                                }
-                            }
-                            for bit in op.pre_pos.0.ones() {
-                                g_pos_new.0.set(bit, true);
-                            }
-                            for bit in g_neg.0.ones() {
-                                if !op.del.0.contains(bit) {
-                                    g_neg_new.0.set(bit, true);
-                                }
-                            }
-                            for bit in op.pre_neg.0.ones() {
-                                g_neg_new.0.set(bit, true);
-                            }
-                            let new_sg = (g_pos_new, g_neg_new);
-                            if !backward_closed.contains_key(&new_sg) {
-                                backward_closed.insert(
-                                    new_sg.clone(),
-                                    (Some((g_pos.clone(), g_neg.clone())), op.id),
-                                );
-                                new_backward.push(new_sg);
-                            }
-                        }
-                    }
-                }
+        for state in &layer {
+            self.forward_queue.push_back(state.clone());
+            if let Some(plan) = self.meet_from_forward(state) {
+                return Some(self.budget.plan(plan, mem::take(&mut self.stats)));
+            }
+        }
 
-                for sg in &new_backward {
-                    backward_queue.push_back(sg.clone());
-                    if let Some(plan) =
-                        check_meet_from_backward(sg, &forward_closed, &backward_closed, task)
-                    {
-                        stats.plan_cost = plan.cost;
-                        stats.plan_length = plan.len();
-                        stats.elapsed = start.elapsed();
-                        return Ok(SearchOutcome::Plan(plan, stats));
-                    }
+        None
+    }
+
+    /// Appends the not yet seen successors of `state` to `layer`, closing them.
+    fn generate_forward(&mut self, state: &State, layer: &mut Vec<State>) {
+        for op in &self.task.operators {
+            if state.applicable(op) {
+                let next = state.apply(op);
+                if !self.forward_closed.contains_key(&next) {
+                    self.forward_closed
+                        .insert(next.clone(), (Some(state.clone()), op.id));
+                    layer.push(next);
                 }
             }
         }
     }
-}
 
-fn is_relevant(op: &Operator, g_pos: &State, g_neg: &State) -> bool {
-    op.add.0.ones().any(|b| g_pos.0.contains(b)) || op.del.0.ones().any(|b| g_neg.0.contains(b))
-}
+    /// Expands every queued backward subgoal, then checks the new layer for a meet.
+    ///
+    /// Returns the outcome if a limit is hit or a meet is found.
+    fn expand_backward_layer(&mut self) -> Option<SearchOutcome> {
+        let mut layer = Vec::new();
+        for _ in 0..self.backward_queue.len() {
+            let subgoal = self
+                .backward_queue
+                .pop_front()
+                .expect("loop runs once per queued subgoal");
+            self.stats.nodes_expanded += 1;
+            if self.budget.exhausted(&self.stats) {
+                return Some(self.budget.limit_reached(mem::take(&mut self.stats)));
+            }
 
-fn is_consistent(op: &Operator, g_pos: &State, g_neg: &State) -> bool {
-    !op.del.0.ones().any(|b| g_pos.0.contains(b)) && !op.add.0.ones().any(|b| g_neg.0.contains(b))
-}
-
-fn build_plan_from_ops(ops: &[OpId], task: &Task) -> Plan {
-    let mut plan = Plan::new();
-    let mut total_cost = 0.0;
-    for &op_id in ops {
-        if let Some(op) = task.operators.get(op_id.0) {
-            plan.steps.push(PlanStep {
-                op_id,
-                op_name: op.name.clone(),
-            });
-            total_cost += f64::from(op.cost);
+            self.generate_backward(&subgoal, &mut layer);
         }
-    }
-    plan.cost = total_cost;
-    plan
-}
 
-fn check_meet_from_forward(
-    s: &State,
-    backward_closed: &FxHashMap<SubgoalKey, (Option<SubgoalKey>, OpId)>,
-    forward_closed: &FxHashMap<State, (Option<State>, OpId)>,
-    task: &Task,
-) -> Option<Plan> {
-    for (g_pos, g_neg) in backward_closed.keys() {
-        if s.satisfies(g_pos, g_neg) {
-            return reconstruct_plan(
-                s,
-                (g_pos.clone(), g_neg.clone()),
-                forward_closed,
-                backward_closed,
-                task,
-            );
+        for subgoal in &layer {
+            self.backward_queue.push_back(subgoal.clone());
+            if let Some(plan) = self.meet_from_backward(subgoal) {
+                return Some(self.budget.plan(plan, mem::take(&mut self.stats)));
+            }
         }
-    }
-    None
-}
 
-fn check_meet_from_backward(
-    sg: &SubgoalKey,
-    forward_closed: &FxHashMap<State, (Option<State>, OpId)>,
-    backward_closed: &FxHashMap<SubgoalKey, (Option<SubgoalKey>, OpId)>,
-    task: &Task,
-) -> Option<Plan> {
-    for (f_state, (_parent, _op)) in forward_closed {
-        if f_state.satisfies(&sg.0, &sg.1) {
-            return reconstruct_plan(f_state, sg.clone(), forward_closed, backward_closed, task);
-        }
-    }
-    None
-}
-
-fn reconstruct_plan(
-    meet_state: &State,
-    meet_subgoal: SubgoalKey,
-    forward_closed: &FxHashMap<State, (Option<State>, OpId)>,
-    backward_closed: &FxHashMap<SubgoalKey, (Option<SubgoalKey>, OpId)>,
-    task: &Task,
-) -> Option<Plan> {
-    let mut forward_ops: Vec<OpId> = Vec::new();
-    let mut current = meet_state.clone();
-    while let Some((parent, op)) = forward_closed.get(&current) {
-        if op.0 == usize::MAX {
-            break;
-        }
-        forward_ops.push(*op);
-        current = parent.clone().unwrap();
-    }
-    forward_ops.reverse();
-
-    let mut backward_ops: Vec<OpId> = Vec::new();
-    let mut sg_current = meet_subgoal.clone();
-    while let Some((parent, op)) = backward_closed.get(&sg_current) {
-        if op.0 == usize::MAX {
-            break;
-        }
-        backward_ops.push(*op);
-        sg_current = parent.clone().unwrap();
+        None
     }
 
-    let mut all_ops = forward_ops;
-    all_ops.extend(backward_ops);
-    Some(build_plan_from_ops(&all_ops, task))
+    /// Appends the not yet seen regressions of `subgoal` to `layer`, closing them.
+    fn generate_backward(&mut self, subgoal: &Subgoal, layer: &mut Vec<Subgoal>) {
+        let num_facts = self.task.num_facts();
+        for op in &self.task.operators {
+            if can_regress(op, subgoal) {
+                let previous = regress(op, subgoal, num_facts);
+                if !self.backward_closed.contains_key(&previous) {
+                    self.backward_closed
+                        .insert(previous.clone(), (Some(subgoal.clone()), op.id));
+                    layer.push(previous);
+                }
+            }
+        }
+    }
+
+    /// The plan through the first closed backward subgoal that `state` satisfies, if any.
+    fn meet_from_forward(&self, state: &State) -> Option<Plan> {
+        self.backward_closed
+            .keys()
+            .find(|subgoal| state.satisfies(&subgoal.0, &subgoal.1))
+            .map(|subgoal| self.plan_through(state, subgoal))
+    }
+
+    /// The plan through the first closed forward state that satisfies `subgoal`, if any.
+    fn meet_from_backward(&self, subgoal: &Subgoal) -> Option<Plan> {
+        self.forward_closed
+            .keys()
+            .find(|state| state.satisfies(&subgoal.0, &subgoal.1))
+            .map(|state| self.plan_through(state, subgoal))
+    }
+
+    /// Joins the forward path to `state` and the backward path from `subgoal`.
+    fn plan_through(&self, state: &State, subgoal: &Subgoal) -> Plan {
+        plan_through(
+            &self.forward_closed,
+            state,
+            &self.backward_closed,
+            subgoal,
+            self.task,
+        )
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::search::Bfs;
-    use crate::task::{CondEffect, Fact, FactId, Task, TaskMeta, TypeHierarchy};
-    use rustc_hash::FxHashMap;
+    use crate::search::test_support::{expect_plan, make_op, make_test_task, state_of};
+    use crate::task::{CondEffect, OpId};
 
-    fn make_test_task(
-        num_facts: usize,
-        init_bits: &[usize],
-        goal_pos_bits: &[usize],
-        goal_neg_bits: &[usize],
-        operators: Vec<Operator>,
-    ) -> Task {
-        let mut facts = Vec::new();
-        let mut fact_index = FxHashMap::default();
-        for i in 0..num_facts {
-            let fact = Fact {
-                predicate: format!("f{i}"),
-                args: vec![],
-            };
-            let id = FactId(i);
-            fact_index.insert(fact.clone(), id);
-            facts.push(fact);
-        }
-        let mut init = State::new(num_facts);
-        for &b in init_bits {
-            init.0.set(b, true);
-        }
-        let mut goal_pos = State::new(num_facts);
-        for &b in goal_pos_bits {
-            goal_pos.0.set(b, true);
-        }
-        let mut goal_neg = State::new(num_facts);
-        for &b in goal_neg_bits {
-            goal_neg.0.set(b, true);
-        }
-        Task {
-            facts,
-            fact_index,
-            operators,
-            init,
-            goal_pos,
-            goal_neg,
-            objects: vec![],
-            types: TypeHierarchy::new(),
-            metadata: TaskMeta {
-                domain_name: "test".to_string(),
-                problem_name: "test".to_string(),
-                requirements: vec![],
-            },
-        }
-    }
-
-    fn make_op(
-        id: usize,
-        name: &str,
-        pre_pos: &[usize],
-        pre_neg: &[usize],
-        add: &[usize],
-        del: &[usize],
-    ) -> Operator {
-        let s = |bits: &[usize], size: usize| -> State {
-            let mut state = State::new(size);
-            for &b in bits {
-                state.0.set(b, true);
-            }
-            state
-        };
-        Operator {
-            id: OpId(id),
-            name: name.to_string(),
-            pre_pos: s(pre_pos, 10),
-            pre_neg: s(pre_neg, 10),
-            add: s(add, 10),
-            del: s(del, 10),
-            conditional: vec![],
-            cost: 1,
-        }
-    }
-
+    /// Solves `task` with [`BibfsUc`] and [`Bfs`] and returns both plans.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either planner fails to find a plan.
     fn run_both(task: &Task) -> (Plan, Plan) {
         let mut bibfs = BibfsUc::new();
         let mut bfs = Bfs::new();
         let limits = SearchLimits::default();
         let bibfs_outcome = bibfs.solve(task, &limits).unwrap();
         let bfs_outcome = bfs.solve(task, &limits).unwrap();
-        let (bibfs_plan, bfs_plan) = match (bibfs_outcome, bfs_outcome) {
-            (SearchOutcome::Plan(a, _), SearchOutcome::Plan(b, _)) => (a, b),
-            _ => panic!("expected plans from both planners"),
-        };
+        let (bibfs_plan, _) = expect_plan(bibfs_outcome);
+        let (bfs_plan, _) = expect_plan(bfs_outcome);
         (bibfs_plan, bfs_plan)
     }
 
@@ -408,8 +291,8 @@ mod tests {
             &[3],
             &[],
             vec![
-                make_op(0, "op0", &[0], &[], &[1, 2], &[]),
-                make_op(1, "op1", &[1, 2], &[], &[3], &[]),
+                make_op(0, "op0", &[0], &[], &[1, 2], &[], 1),
+                make_op(1, "op1", &[1, 2], &[], &[3], &[], 1),
             ],
         );
 
@@ -426,7 +309,7 @@ mod tests {
             &[0],
             &[2],
             &[],
-            vec![make_op(0, "op0", &[0], &[], &[1], &[])],
+            vec![make_op(0, "op0", &[0], &[], &[1], &[], 1)],
         );
 
         let mut bibfs = BibfsUc::new();
@@ -437,18 +320,11 @@ mod tests {
 
     #[test]
     fn test_conditional_effect_rejected() {
-        let s = |bits: &[usize], size: usize| -> State {
-            let mut state = State::new(size);
-            for &b in bits {
-                state.0.set(b, true);
-            }
-            state
-        };
-        let mut op = make_op(0, "op_cond", &[0], &[], &[1], &[]);
+        let mut op = make_op(0, "op_cond", &[0], &[], &[1], &[], 1);
         op.conditional.push(CondEffect {
-            cond_pos: s(&[0], 3),
+            cond_pos: state_of(&[0], 3),
             cond_neg: State::new(3),
-            add: s(&[2], 3),
+            add: state_of(&[2], 3),
             del: State::new(3),
         });
 
@@ -470,7 +346,7 @@ mod tests {
             &[0, 1],
             &[1],
             &[],
-            vec![make_op(0, "op0", &[0], &[], &[1], &[])],
+            vec![make_op(0, "op0", &[0], &[], &[1], &[], 1)],
         );
 
         let mut bibfs = BibfsUc::new();

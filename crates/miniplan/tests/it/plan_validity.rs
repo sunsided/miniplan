@@ -4,12 +4,15 @@
 //! breadth-first search over the graph itself is the oracle for solvability and plan length.
 
 use std::collections::VecDeque;
+use std::fmt::Write as _;
 
 use miniplan::ground::ground;
-use miniplan::heuristic::{HFF, HMax};
+use miniplan::heuristic::{HFF, HMax, HZero};
 use miniplan::pddl_io::load_combined_str;
 use miniplan::plan::Plan;
-use miniplan::search::{Astar, Bfs, BiDij, BibfsUc, Gbfs, Planner, SearchLimits, SearchOutcome};
+use miniplan::search::{
+    Astar, Bae, Bfs, BiDij, BibfsUc, Gbfs, Nbs, Planner, SearchLimits, SearchOutcome,
+};
 use miniplan::task::Task;
 use proptest::prelude::*;
 
@@ -43,11 +46,13 @@ impl GraphCase {
     /// Renders the domain and problem as one PDDL source string.
     fn to_pddl(&self) -> String {
         let objects: Vec<String> = (0..self.nodes).map(|n| format!("n{n}")).collect();
-        let edges: String = self
+        let edges = self
             .edges
             .iter()
-            .map(|(from, to)| format!(" (edge n{from} n{to})"))
-            .collect();
+            .fold(String::new(), |mut edges, (from, to)| {
+                write!(edges, " (edge n{from} n{to})").expect("writing to a String cannot fail");
+                edges
+            });
 
         format!(
             "{DOMAIN}\n(define (problem walk) (:domain graph-walk)\n  (:objects {} - node)\n  (:init (at n0){edges})\n  (:goal (at n{})))",
@@ -123,11 +128,18 @@ fn solve(planner: &mut dyn Planner, task: &Task) -> Option<Plan> {
 }
 
 /// The planners under test, paired with whether they guarantee shortest plans.
+///
+/// The heuristic planners get admissible heuristics, since they only promise optimal plans
+/// with one. `BibfsUc` is optimal by step count, which matches cost here because every
+/// generated action costs 1.
 fn planners() -> Vec<(Box<dyn Planner>, bool)> {
     vec![
         (Box::new(Bfs::new()), true),
         (Box::new(Astar::new(Box::new(HMax))), true),
         (Box::new(BiDij::new()), true),
+        (Box::new(Nbs::new(Box::new(HMax))), true),
+        (Box::new(Bae::new(Box::new(HZero))), true),
+        (Box::new(BibfsUc::new()), true),
         (Box::new(Gbfs::new(Box::new(HFF))), false),
     ]
 }

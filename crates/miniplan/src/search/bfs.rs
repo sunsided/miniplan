@@ -1,8 +1,11 @@
+//! Breadth-first search ([`Bfs`]) over complete states.
+
 use std::collections::VecDeque;
-use std::time::Instant;
+
+use rustc_hash::FxHashSet;
 
 use crate::error::MiniplanError;
-use crate::plan::{Plan, PlanStep};
+use crate::search::outcome::{Budget, plan_from_ops};
 use crate::search::{Planner, PlannerCapabilities, SearchLimits, SearchOutcome, SearchStats, Task};
 
 /// Breadth-first search planner.
@@ -42,50 +45,34 @@ impl Planner for Bfs {
         PlannerCapabilities::CLASSICAL | PlannerCapabilities::NEGATIVE_PRECONDS
     }
 
+    /// Runs breadth-first search on `task`. Never fails.
     fn solve(
         &mut self,
         task: &Task,
         limits: &SearchLimits,
     ) -> Result<SearchOutcome, MiniplanError> {
-        let start = Instant::now();
+        let budget = Budget::start(limits);
         let mut stats = SearchStats::default();
-
         let mut queue = VecDeque::new();
-        let mut closed = rustc_hash::FxHashSet::default();
+        let mut closed = FxHashSet::default();
 
         queue.push_back((task.init.clone(), Vec::new()));
         closed.insert(task.init.clone());
 
         while let Some((state, path)) = queue.pop_front() {
             stats.nodes_expanded += 1;
-
             if state.satisfies(&task.goal_pos, &task.goal_neg) {
-                let plan = build_plan(&path, task);
-                stats.plan_cost = plan.cost;
-                stats.plan_length = plan.len();
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::Plan(plan, stats));
+                return Ok(budget.plan(plan_from_ops(&path, task), stats));
             }
 
-            if let Some(max_nodes) = limits.node_budget
-                && stats.nodes_expanded >= max_nodes
-            {
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::LimitReached(stats));
-            }
-
-            if let Some(timeout) = limits.time_budget
-                && start.elapsed() >= timeout
-            {
-                stats.elapsed = start.elapsed();
-                return Ok(SearchOutcome::LimitReached(stats));
+            if budget.exhausted(&stats) {
+                return Ok(budget.limit_reached(stats));
             }
 
             for op in &task.operators {
                 if state.applicable(op) {
                     let next = state.apply(op);
-                    if !closed.contains(&next) {
-                        closed.insert(next.clone());
+                    if closed.insert(next.clone()) {
                         stats.nodes_generated += 1;
                         let mut new_path = path.clone();
                         new_path.push(op.id);
@@ -95,23 +82,6 @@ impl Planner for Bfs {
             }
         }
 
-        stats.elapsed = start.elapsed();
-        Ok(SearchOutcome::Unsolvable(stats))
+        Ok(budget.unsolvable(stats))
     }
-}
-
-fn build_plan(path: &[crate::task::OpId], task: &Task) -> Plan {
-    let mut plan = Plan::new();
-    let mut total_cost = 0.0;
-    for &op_id in path {
-        if let Some(op) = task.operators.get(op_id.0) {
-            plan.steps.push(PlanStep {
-                op_id,
-                op_name: op.name.clone(),
-            });
-            total_cost += f64::from(op.cost);
-        }
-    }
-    plan.cost = total_cost;
-    plan
 }
