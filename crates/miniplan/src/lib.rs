@@ -1,5 +1,4 @@
 #![forbid(unsafe_code)]
-#![warn(missing_docs)]
 
 //! A PDDL planner library built around the [`pddl`](https://crates.io/crates/pddl) crate.
 //!
