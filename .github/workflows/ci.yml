@@ -67,7 +67,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   style:
-    name: style (separators, README links, typos, review index)
+    name: style (separators, README links, typos, review index, mermaid)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -83,6 +83,12 @@ jobs:
         uses: crate-ci/typos@276087d9a4f06398b3e04825487805e2d7375888 # v1.52.2
       - name: Review index is current
         run: python3 scripts/review-index.py --check
+      # Version resolved from jsdelivr (docs/automation.md); bump deliberately.
+      - name: Mermaid diagrams render
+        run: python3 scripts/lint-mermaid.py
+        env:
+          MMDC: npx --yes @mermaid-js/mermaid-cli@12.2.0
+          MMDC_NO_SANDBOX: "1"
 
   doc:
     name: rustdoc
