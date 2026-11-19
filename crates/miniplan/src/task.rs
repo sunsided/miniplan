@@ -130,6 +130,10 @@ impl State {
     }
 
     /// Set or clear a fact in this state.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is not below [`State::len`].
     pub fn set(&mut self, id: FactId, value: bool) {
         self.0.set(id.0, value);
     }

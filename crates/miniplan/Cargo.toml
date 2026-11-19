@@ -17,7 +17,6 @@ thiserror.workspace = true
 fixedbitset.workspace = true
 rustc-hash.workspace = true
 indexmap.workspace = true
-tracing.workspace = true
 bitflags.workspace = true
 
 [dev-dependencies]

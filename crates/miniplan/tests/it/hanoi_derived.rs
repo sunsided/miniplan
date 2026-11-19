@@ -1,11 +1,16 @@
+//! Towers of Hanoi with a derived `can-place` predicate.
+
 use miniplan::ground::ground;
 use miniplan::heuristic::HFF;
 use miniplan::pddl_io::load_combined_str_named;
 use miniplan::search::{Astar, Planner, SearchLimits};
 use pddl::Parser;
 
+/// Three-disc Towers of Hanoi whose move legality is a derived predicate.
 const HANOI_DERIVED_SRC: &str = include_str!("../../../../examples/pddl/hanoi-derived.pddl");
 
+/// The derived-predicate Hanoi task grounds and A* with h^FF finds the
+/// optimal 7-move plan.
 #[test]
 fn test_hanoi_derived_plan_length() {
     let parsed =

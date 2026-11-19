@@ -1,8 +1,14 @@
+//! Grounds a small embedded rooms-and-balls task and solves it with A* and
+//! h^FF, printing the plan and search statistics.
+//!
+//! Run with `cargo run -p miniplan --example solve_file`.
+
 use miniplan::ground::ground;
 use miniplan::heuristic::HFF;
 use miniplan::pddl_io::{load_domain_str, load_problem_str};
 use miniplan::search::{Astar, Planner, SearchLimits, SearchOutcome};
 
+/// A robot moves between rooms and carries one ball at a time.
 const DOMAIN: &str = r"
 (define (domain simple-test)
     (:requirements :strips :typing)
@@ -29,6 +35,7 @@ const DOMAIN: &str = r"
 )
 ";
 
+/// Move the robot and ball `b1` from room `r1` to room `r2`.
 const PROBLEM: &str = r"
 (define (problem simple-test-1)
     (:domain simple-test)
@@ -39,6 +46,7 @@ const PROBLEM: &str = r"
 )
 ";
 
+/// Grounds the embedded task, solves it with A* and h^FF without limits, and prints the plan.
 fn main() {
     let domain = load_domain_str(DOMAIN).expect("domain parses");
     let problem = load_problem_str(PROBLEM).expect("problem parses");

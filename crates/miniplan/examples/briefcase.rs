@@ -1,8 +1,14 @@
+//! Solves a briefcase world variant without conditional effects with
+//! BFS, A* with h^FF, and A* with the blind heuristic, printing each plan.
+//!
+//! Run with `cargo run -p miniplan --example briefcase`.
+
 use miniplan::ground::ground;
 use miniplan::heuristic::{BlindHeuristic, HFF};
 use miniplan::pddl_io::{load_domain_str, load_problem_str};
 use miniplan::search::{Astar, Bfs, Planner, SearchLimits, SearchOutcome};
 
+/// Briefcase world without conditional effects: `mov-B` moves only the briefcase `B` itself.
 const DOMAIN: &str = r"
 (define (domain briefcase-world)
     (:requirements :strips :equality :typing :conditional-effects)
@@ -28,6 +34,7 @@ const DOMAIN: &str = r"
 )
 ";
 
+/// Take the briefcase to the office while the paycheck `P` and dictionary `D` stay at home.
 const PROBLEM: &str = r"
 (define (problem get-paid)
     (:domain briefcase-world)
@@ -38,6 +45,7 @@ const PROBLEM: &str = r"
 )
 ";
 
+/// Grounds the task and solves it with three planner configurations.
 fn main() {
     let domain = load_domain_str(DOMAIN).expect("domain parses");
     let problem = load_problem_str(PROBLEM).expect("problem parses");
@@ -61,6 +69,12 @@ fn main() {
     solve_with(&mut Astar::new(Box::new(BlindHeuristic)), &task, &limits);
 }
 
+/// Runs `planner` on `task` and prints the outcome: the plan and its statistics,
+/// or why no plan was produced.
+///
+/// # Panics
+///
+/// Panics if the planner returns an error.
 fn solve_with<P: Planner>(planner: &mut P, task: &miniplan::task::Task, limits: &SearchLimits) {
     match planner.solve(task, limits).expect("solve returns") {
         SearchOutcome::Plan(plan, stats) => {

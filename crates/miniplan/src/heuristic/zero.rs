@@ -1,3 +1,5 @@
+//! The zero heuristic, which turns informed search into uniform-cost search.
+
 use crate::search::HValue;
 use crate::search::Heuristic;
 use crate::task::{State, Task};

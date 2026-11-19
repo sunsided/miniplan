@@ -1,5 +1,8 @@
+//! The grounding entry point: fact universe, initial state, goal and operators.
+
 use pddl::{ActionDefinition, Domain, GoalDefinition, Problem, StructureDef};
 use pddl::{InitElement, PreconditionGoalDefinition};
+use rustc_hash::FxHashMap;
 
 use crate::error::MiniplanError;
 use crate::ground::cost::extract_action_cost;
@@ -7,20 +10,33 @@ use crate::ground::derived;
 use crate::ground::derived::collect as collect_derived;
 use crate::ground::effect::extract_effects;
 use crate::ground::formula::{build_state_from_literals, walk_goal_definition};
-use crate::ground::types::{extract_objects, extract_types, objects_of_type};
-use crate::task::{Fact, FactId, Object, OpId, Operator, State, Task, TaskMeta, TypeHierarchy};
+use crate::ground::types::{
+    Binding, advance_odometer, extract_objects, extract_types, generate_bindings, type_to_string,
+};
+use crate::task::{Fact, FactId, Object, OpId, Operator, State, Task, TaskMeta};
 
-/// Ground a PDDL domain and problem into a [`Task`](crate::task::Task).
+/// Ground a PDDL domain and problem into a [`Task`].
 ///
 /// This is the main entry point for grounding. It extracts types, objects,
 /// builds a fact universe, grounds all operators, and constructs the initial
 /// state and goal specification.
+///
+/// # Errors
+///
+/// Returns [`MiniplanError::Ground`] when
+///
+/// - a derived predicate is unsupported: it appears in an action effect,
+///   references itself, references another derived predicate, references a
+///   fluent predicate, or uses a numeric comparison in its body;
+/// - the goal is unsatisfiable (its disjunctive normal form is empty);
+/// - the goal or an action precondition or `when` condition uses a negated
+///   non-atomic formula, `imply`, or a numeric comparison.
 pub fn ground(domain: &Domain, problem: &Problem) -> Result<Task, MiniplanError> {
-    let types = extract_types(domain)?;
-    let objects = extract_objects(domain, problem, &types)?;
+    let types = extract_types(domain);
+    let objects = extract_objects(domain, problem);
 
     let derived_rules = collect_derived(domain)?;
-    let (facts, fact_index) = build_fact_universe(domain, &derived_rules, &objects)?;
+    let (facts, fact_index) = build_fact_universe(domain, &derived_rules, &objects);
 
     let num_facts = facts.len();
     let mut task = Task {
@@ -43,7 +59,7 @@ pub fn ground(domain: &Domain, problem: &Problem) -> Result<Task, MiniplanError>
         },
     };
 
-    build_init_state(&mut task, problem)?;
+    build_init_state(&mut task, problem);
     derived::expand_into_init_with_rules(&mut task, &derived_rules)?;
     build_goal_state(&mut task, problem)?;
     ground_actions(&mut task, domain)?;
@@ -51,246 +67,221 @@ pub fn ground(domain: &Domain, problem: &Problem) -> Result<Task, MiniplanError>
     Ok(task)
 }
 
+/// Enumerates every fact that can exist: each domain predicate and each
+/// derived predicate head, applied to every tuple of objects.
+///
+/// Argument types are deliberately ignored, so the universe is a superset of
+/// the type-correct facts. Facts get dense ids in enumeration order; the map
+/// is the inverse of the returned vector.
 fn build_fact_universe(
     domain: &Domain,
     derived_rules: &derived::DerivedRuleSet,
     objects: &[Object],
-) -> Result<(Vec<Fact>, rustc_hash::FxHashMap<Fact, FactId>), MiniplanError> {
+) -> (Vec<Fact>, FxHashMap<Fact, FactId>) {
     let mut facts = Vec::new();
-    let mut fact_index = rustc_hash::FxHashMap::default();
+    let mut fact_index = FxHashMap::default();
 
-    for pred in domain.predicates().iter() {
-        let pred_name = pred.predicate().to_string();
-        let arity = pred.variables().len();
-        if arity == 0 {
-            let fact = Fact {
-                predicate: pred_name.clone(),
-                args: Vec::new(),
-            };
-            #[expect(clippy::map_entry)]
-            if !fact_index.contains_key(&fact) {
-                let id = FactId(facts.len());
-                facts.push(fact.clone());
-                fact_index.insert(fact, id);
-            }
-        } else {
-            generate_predicate_groundings(&pred_name, arity, objects, &mut facts, &mut fact_index);
-        }
+    let predicates = domain
+        .predicates()
+        .iter()
+        .map(|pred| (pred.predicate().to_string(), pred.variables().len()));
+    let derived_heads = derived_rules
+        .rules
+        .iter()
+        .map(|rule| (rule.head_name.clone(), rule.params.len()));
+
+    for (name, arity) in predicates.chain(derived_heads) {
+        generate_predicate_groundings(&name, arity, objects, &mut facts, &mut fact_index);
     }
 
-    let derived_rules = &derived_rules;
-    for rule in &derived_rules.rules {
-        let arity = rule.params.len();
-        if arity == 0 {
-            let fact = Fact {
-                predicate: rule.head_name.clone(),
-                args: Vec::new(),
-            };
-            #[expect(clippy::map_entry)]
-            if !fact_index.contains_key(&fact) {
-                let id = FactId(facts.len());
-                facts.push(fact.clone());
-                fact_index.insert(fact, id);
-            }
-        } else {
-            generate_predicate_groundings(
-                &rule.head_name,
-                arity,
-                objects,
-                &mut facts,
-                &mut fact_index,
-            );
-        }
-    }
-
-    Ok((facts, fact_index))
+    (facts, fact_index)
 }
 
+/// Adds every grounding of the predicate `pred_name` with `arity` arguments
+/// drawn from `objects` to the fact universe.
+///
+/// Arguments vary in object order with the last argument fastest. A nullary
+/// predicate yields exactly one fact; a predicate with arguments yields none
+/// when there are no objects.
 fn generate_predicate_groundings(
     pred_name: &str,
     arity: usize,
     objects: &[Object],
     facts: &mut Vec<Fact>,
-    fact_index: &mut rustc_hash::FxHashMap<Fact, FactId>,
+    fact_index: &mut FxHashMap<Fact, FactId>,
 ) {
     let object_names: Vec<&str> = objects.iter().map(|o| o.name.as_str()).collect();
-    let mut combo = vec![0usize; arity];
-    let n = object_names.len();
-
-    if n == 0 {
+    if arity > 0 && object_names.is_empty() {
         return;
     }
 
+    let limits = vec![object_names.len(); arity];
+    let mut combo = vec![0usize; arity];
     loop {
-        let args: Vec<String> = combo.iter().map(|&i| object_names[i].to_owned()).collect();
         let fact = Fact {
             predicate: pred_name.to_owned(),
-            args,
+            args: combo.iter().map(|&i| object_names[i].to_owned()).collect(),
         };
-        #[expect(clippy::map_entry)]
-        if !fact_index.contains_key(&fact) {
-            let id = FactId(facts.len());
-            facts.push(fact.clone());
-            fact_index.insert(fact, id);
-        }
+        intern_fact(facts, fact_index, fact);
 
-        let mut idx = arity - 1;
-        loop {
-            combo[idx] += 1;
-            if combo[idx] < n {
-                break;
-            }
-            combo[idx] = 0;
-            if idx == 0 {
-                return;
-            }
-            idx -= 1;
+        if arity == 0 || !advance_odometer(&mut combo, &limits) {
+            return;
         }
     }
 }
 
-fn build_init_state(task: &mut Task, problem: &Problem) -> Result<(), MiniplanError> {
+/// Returns the id of `fact`, appending it to the universe first if it is new.
+///
+/// New facts get the next dense id, so `facts[id.0]` is always the fact that
+/// `fact_index` maps to `id`.
+pub(super) fn intern_fact(
+    facts: &mut Vec<Fact>,
+    fact_index: &mut FxHashMap<Fact, FactId>,
+    fact: Fact,
+) -> FactId {
+    *fact_index.entry(fact).or_insert_with_key(|fact| {
+        let id = FactId(facts.len());
+        facts.push(fact.clone());
+        id
+    })
+}
+
+/// Sets the problem's `:init` atoms in `task.init`.
+///
+/// Only positive predicate atoms count. Numeric and object fluent
+/// initialisations and atoms outside the fact universe are skipped.
+fn build_init_state(task: &mut Task, problem: &Problem) {
     for elem in problem.init().iter() {
         if let InitElement::Literal(pddl::Literal::AtomicFormula(pddl::AtomicFormula::Predicate(
             pred,
         ))) = elem
         {
-            let name = pred.predicate().to_string();
-            let args: Vec<String> = pred
-                .values()
-                .iter()
-                .map(std::string::ToString::to_string)
-                .collect();
             let fact = Fact {
-                predicate: name,
-                args,
+                predicate: pred.predicate().to_string(),
+                args: pred
+                    .values()
+                    .iter()
+                    .map(std::string::ToString::to_string)
+                    .collect(),
             };
             if let Some(id) = task.fact_id(&fact) {
                 task.init.set(id, true);
             }
         }
     }
-    Ok(())
 }
 
+/// Sets `task.goal_pos` and `task.goal_neg` from the problem's `:goal`.
+///
+/// Preferences and quantified goal definitions are ignored. A disjunctive goal
+/// is reduced to its first disjunct, so only that branch has to be reached.
+///
+/// # Errors
+///
+/// Returns [`MiniplanError::Ground`] when the goal is unsatisfiable, or when
+/// [`walk_goal_definition`] rejects it (negated non-atom, `imply`, numeric
+/// comparison).
 fn build_goal_state(task: &mut Task, problem: &Problem) -> Result<(), MiniplanError> {
-    let goals = problem.goals();
-    if goals.is_empty() {
-        return Ok(());
-    }
+    let goal_gds: Vec<GoalDefinition> = problem
+        .goals()
+        .iter()
+        .filter_map(precondition_to_goal)
+        .collect();
 
-    // Convert PreconditionGoalDefinitions to GoalDefinitions
-    let goal_gds: Vec<GoalDefinition> = goals.iter().filter_map(precondition_to_goal).collect();
-
-    if goal_gds.is_empty() {
-        return Ok(());
-    }
-
-    let combined = if goal_gds.len() == 1 {
-        goal_gds[0].clone()
-    } else {
-        GoalDefinition::new_and(goal_gds)
+    let combined = match goal_gds.len() {
+        0 => return Ok(()),
+        1 => goal_gds[0].clone(),
+        _ => GoalDefinition::new_and(goal_gds),
     };
 
     let dnf = walk_goal_definition(&combined, &[])?;
-    if dnf.is_empty() {
+    let Some(first) = dnf.first() else {
         return Err(MiniplanError::Ground(
             "goal is unsatisfiable (False)".into(),
         ));
-    }
+    };
 
-    let (pos, neg) = build_state_from_literals(&dnf[0], task)?;
+    let (pos, neg) = build_state_from_literals(first, task);
     task.goal_pos = pos;
     task.goal_neg = neg;
 
     Ok(())
 }
 
+/// Unwraps a plain goal definition from a precondition or goal entry.
+///
+/// Returns `None` for named preferences and `forall` preconditions, which the
+/// grounder does not support and silently drops.
 fn precondition_to_goal(pgd: &PreconditionGoalDefinition) -> Option<GoalDefinition> {
     match pgd {
-        PreconditionGoalDefinition::Preference(pref_gd) => match pref_gd {
-            pddl::PreferenceGoalDefinition::Goal(gd) => Some(gd.clone()),
-            pddl::PreferenceGoalDefinition::Preference(_) => None,
-        },
-        PreconditionGoalDefinition::Forall(_, _) => None,
+        PreconditionGoalDefinition::Preference(pddl::PreferenceGoalDefinition::Goal(gd)) => {
+            Some(gd.clone())
+        }
+        PreconditionGoalDefinition::Preference(pddl::PreferenceGoalDefinition::Preference(_))
+        | PreconditionGoalDefinition::Forall(_, _) => None,
     }
 }
 
+/// Grounds every action of the domain and appends the operators to the task.
+///
+/// Derived predicates (`StructureDef::Derived`) were already expanded into the
+/// initial state by [`derived::expand_into_init_with_rules`] and are skipped.
+///
+/// # Errors
+///
+/// Propagates the [`MiniplanError::Ground`] errors of [`ground_action`].
 fn ground_actions(task: &mut Task, domain: &Domain) -> Result<(), MiniplanError> {
     for def in domain.structure().iter() {
         if let StructureDef::Action(action) = def {
             ground_action(task, action)?;
         }
-        // StructureDef::Derived is handled by derived::expand_into_init above.
     }
+
     Ok(())
 }
 
+/// Grounds one action schema into operators, one per parameter binding and
+/// precondition disjunct.
+///
+/// Bindings whose precondition is unsatisfiable produce no operator.
+///
+/// # Errors
+///
+/// Returns [`MiniplanError::Ground`] when [`walk_goal_definition`] rejects the
+/// precondition or a `when` condition (negated non-atom, `imply`, numeric
+/// comparison).
 fn ground_action(task: &mut Task, action: &ActionDefinition) -> Result<(), MiniplanError> {
     let action_name = action.symbol().to_string();
-
     let params: Vec<(String, String)> = action
         .parameters()
         .iter()
         .map(|typed_var| {
-            let var = typed_var.value();
-            let name = var.to_string();
-            let sort = type_to_string(typed_var.type_());
-            (name, sort)
+            (
+                typed_var.value().to_string(),
+                type_to_string(typed_var.type_()),
+            )
         })
         .collect();
+    let precondition = combined_precondition(action);
 
-    let precondition = action.precondition();
-    let pre_gds: Vec<GoalDefinition> = precondition
-        .iter()
-        .filter_map(precondition_to_goal)
-        .collect();
-
-    let combined_pre = if pre_gds.len() == 1 {
-        pre_gds[0].clone()
-    } else if !pre_gds.is_empty() {
-        GoalDefinition::new_and(pre_gds)
-    } else {
-        GoalDefinition::AtomicFormula(pddl::AtomicFormula::new_predicate(
-            pddl::Predicate::from_static("dummy"),
-            vec![],
-        ))
-    };
-
-    let bindings_list = generate_bindings(&params, &task.objects, &task.types)?;
-
+    let bindings_list = generate_bindings(&params, &task.objects, &task.types);
     for bindings in &bindings_list {
-        let dnf = walk_goal_definition(&combined_pre, bindings)?;
-        if dnf.is_empty() {
-            continue;
-        }
-
+        let dnf = walk_goal_definition(&precondition, bindings)?;
         for literals in &dnf {
-            let (pre_pos, pre_neg) = build_state_from_literals(literals, task)?;
-
-            let effects = action.effect();
-            let (add, del, conditional) = extract_effects(effects, bindings, task)?;
-
-            let op_name = if bindings.is_empty() {
-                action_name.clone()
-            } else {
-                let args: Vec<&str> = bindings.iter().map(|(_, v)| v.as_str()).collect();
-                format!("{}({})", action_name, args.join(","))
-            };
-
-            let cost = extract_action_cost(action)?;
+            let (pre_pos, pre_neg) = build_state_from_literals(literals, task);
+            let (add, del, conditional) =
+                extract_effects(action.effect().as_ref(), bindings, task)?;
 
             let op = Operator {
                 id: OpId(task.operators.len()),
-                name: op_name,
+                name: operator_name(&action_name, bindings),
                 pre_pos,
                 pre_neg,
                 add,
                 del,
                 conditional,
-                cost,
+                cost: extract_action_cost(action),
             };
-
             task.operators.push(op);
         }
     }
@@ -298,56 +289,35 @@ fn ground_action(task: &mut Task, action: &ActionDefinition) -> Result<(), Minip
     Ok(())
 }
 
-fn generate_bindings(
-    params: &[(String, String)],
-    objects: &[Object],
-    types: &TypeHierarchy,
-) -> Result<Vec<Vec<(String, String)>>, MiniplanError> {
-    if params.is_empty() {
-        return Ok(vec![vec![]]);
-    }
-
-    let param_objects: Vec<Vec<&str>> = params
+/// Merges an action's precondition entries into one goal definition.
+///
+/// Several entries become a conjunction. An action without a usable
+/// precondition gets the placeholder atom `(dummy)`; it names no fact in the
+/// universe, so it adds no precondition bit.
+fn combined_precondition(action: &ActionDefinition) -> GoalDefinition {
+    let mut pre_gds: Vec<GoalDefinition> = action
+        .precondition()
         .iter()
-        .map(|(_, sort)| objects_of_type(objects, sort, types))
+        .filter_map(precondition_to_goal)
         .collect();
 
-    let mut results = Vec::new();
-    let mut indices = vec![0usize; params.len()];
-    let counts: Vec<usize> = param_objects.iter().map(std::vec::Vec::len).collect();
-
-    if counts.contains(&0) {
-        return Ok(results);
-    }
-
-    loop {
-        let binding: Vec<(String, String)> = params
-            .iter()
-            .enumerate()
-            .map(|(i, (name, _))| (name.clone(), param_objects[i][indices[i]].to_owned()))
-            .collect();
-        results.push(binding);
-
-        let mut idx = params.len() - 1;
-        loop {
-            indices[idx] += 1;
-            if indices[idx] < counts[idx] {
-                break;
-            }
-            indices[idx] = 0;
-            if idx == 0 {
-                return Ok(results);
-            }
-            idx -= 1;
-        }
+    match pre_gds.len() {
+        0 => GoalDefinition::AtomicFormula(pddl::AtomicFormula::new_predicate(
+            pddl::Predicate::from_static("dummy"),
+            vec![],
+        )),
+        1 => pre_gds.remove(0),
+        _ => GoalDefinition::new_and(pre_gds),
     }
 }
 
-fn type_to_string(t: &pddl::Type) -> String {
-    match t {
-        pddl::Type::Exactly(pt) => pt.to_string(),
-        pddl::Type::EitherOf(pts) => pts
-            .first()
-            .map_or_else(|| "object".to_owned(), std::string::ToString::to_string),
+/// Formats a grounded operator name: `action(arg1,arg2)`, or just `action`
+/// when there are no parameters.
+fn operator_name(action_name: &str, bindings: &[Binding]) -> String {
+    if bindings.is_empty() {
+        return action_name.to_owned();
     }
+
+    let args: Vec<&str> = bindings.iter().map(|(_, v)| v.as_str()).collect();
+    format!("{}({})", action_name, args.join(","))
 }

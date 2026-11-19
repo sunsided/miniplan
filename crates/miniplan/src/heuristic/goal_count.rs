@@ -1,3 +1,5 @@
+//! The goal-count heuristic: number of unsatisfied positive goal facts.
+
 use crate::search::HValue;
 use crate::search::Heuristic;
 use crate::task::{State, Task};

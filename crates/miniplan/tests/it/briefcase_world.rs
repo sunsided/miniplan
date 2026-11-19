@@ -1,10 +1,13 @@
+//! Parsing, grounding and solving of small hand-written domains, including
+//! sources with comments.
+
 use miniplan::ground::ground;
 use miniplan::heuristic::HFF;
 use miniplan::pddl_io::load_combined_str;
 use miniplan::pddl_io::{load_domain_str, load_problem_str};
 use miniplan::search::{Astar, Bfs, Planner, SearchLimits};
 
-// Simple gripper-like domain for initial smoke testing
+/// Simple gripper-like domain for initial smoke testing: one robot, rooms, balls.
 const SIMPLE_DOMAIN: &str = r"
 (define (domain simple-test)
     (:requirements :strips :typing)
@@ -31,6 +34,7 @@ const SIMPLE_DOMAIN: &str = r"
 )
 ";
 
+/// Move the robot and ball `b1` from `r1` to `r2`.
 const SIMPLE_PROBLEM: &str = r"
 (define (problem simple-test-1)
     (:domain simple-test)
@@ -41,6 +45,8 @@ const SIMPLE_PROBLEM: &str = r"
 )
 ";
 
+/// Briefcase world without conditional effects; uses a domain constant `B`
+/// and a negated equality precondition.
 const BRIEFCASE_DOMAIN: &str = r"
 (define (domain briefcase-world)
     (:requirements :strips :equality :typing :conditional-effects)
@@ -66,6 +72,8 @@ const BRIEFCASE_DOMAIN: &str = r"
 )
 ";
 
+/// Bring the briefcase to the office; note that the init and goal write
+/// the objects `p` and `d` as `P` and `D`.
 const BRIEFCASE_PROBLEM: &str = r"
 (define (problem get-paid)
     (:domain briefcase-world)
@@ -76,6 +84,7 @@ const BRIEFCASE_PROBLEM: &str = r"
 )
 ";
 
+/// The briefcase world parses and grounds to operators and a goal.
 #[test]
 fn test_briefcase_parse_and_ground() {
     let domain = load_domain_str(BRIEFCASE_DOMAIN).expect("domain parses");
@@ -89,6 +98,7 @@ fn test_briefcase_parse_and_ground() {
     );
 }
 
+/// The simple domain parses and grounds to operators.
 #[test]
 fn test_simple_parse_and_ground() {
     let domain = load_domain_str(SIMPLE_DOMAIN).expect("domain parses");
@@ -103,6 +113,7 @@ fn test_simple_parse_and_ground() {
     );
 }
 
+/// BFS solves the simple task within its limits.
 #[test]
 fn test_simple_solve_bfs() {
     let domain = load_domain_str(SIMPLE_DOMAIN).expect("domain parses");
@@ -135,6 +146,8 @@ fn test_simple_solve_bfs() {
     }
 }
 
+/// BFS solves the briefcase world; dumps the grounded init and goal facts
+/// to stderr to ease debugging.
 #[test]
 fn test_briefcase_solve_bfs() {
     let domain = load_domain_str(BRIEFCASE_DOMAIN).expect("domain parses");
@@ -189,6 +202,7 @@ fn test_briefcase_solve_bfs() {
     }
 }
 
+/// A* with h^FF solves the briefcase world.
 #[test]
 fn test_briefcase_solve_astar_ff() {
     let domain = load_domain_str(BRIEFCASE_DOMAIN).expect("domain parses");
@@ -217,6 +231,7 @@ fn test_briefcase_solve_astar_ff() {
     }
 }
 
+/// Domain preceded by `;` comments, one with unbalanced parentheses.
 const DOMAIN_WITH_COMMENTS: &str = r"
 ; This is a test domain with leading comments
 ; note: uses (either ...) typing syntax
@@ -247,6 +262,7 @@ const DOMAIN_WITH_COMMENTS: &str = r"
 )
 ";
 
+/// Problem for [`DOMAIN_WITH_COMMENTS`], also preceded by comments.
 const PROBLEM_WITH_COMMENTS: &str = r"
 ; Problem file also supports leading comments
 ; goal: move things (careful with parens) around
@@ -260,6 +276,7 @@ const PROBLEM_WITH_COMMENTS: &str = r"
 )
 ";
 
+/// Leading comments, even with unbalanced parentheses, do not break parsing.
 #[test]
 fn test_domain_with_leading_comments() {
     let domain =
@@ -270,6 +287,7 @@ fn test_domain_with_leading_comments() {
     assert!(!task.operators.is_empty(), "should have grounded operators");
 }
 
+/// Domain and problem in one source with comments before and between them.
 const COMBINED_WITH_COMMENTS: &str = r"
 ; Combined PDDL file with domain and problem
 ; handles (either cargo plane) typing
@@ -297,6 +315,7 @@ const COMBINED_WITH_COMMENTS: &str = r"
 )
 ";
 
+/// Comments before and between definitions do not break combined loading.
 #[test]
 fn test_combined_with_leading_and_interleaved_comments() {
     let (domain, problem) =

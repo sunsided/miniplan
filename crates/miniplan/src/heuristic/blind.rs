@@ -1,3 +1,5 @@
+//! The blind heuristic: goal test only.
+
 use crate::search::HValue;
 use crate::search::Heuristic;
 use crate::task::{State, Task};

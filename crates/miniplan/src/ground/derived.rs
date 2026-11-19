@@ -1,139 +1,192 @@
-use pddl::{AtomicFormula, Type};
-use pddl::{Domain, GoalDefinition, Literal, StructureDef, Term};
+//! Derived predicates (`:derived`) with static bodies.
+//!
+//! Only single-layer, non-recursive rules whose bodies mention no fluent
+//! (action-modified) predicate are supported. Their truth never changes during
+//! search, so each rule is evaluated once against the initial state and the
+//! resulting facts are added to it.
+
+use pddl::{AtomicFormula, ConditionalEffect, EffectCondition, Effects, PrimitiveEffect};
+use pddl::{DerivedPredicate, Domain, GoalDefinition, Literal, StructureDef, Term, Typed};
 use rustc_hash::FxHashSet;
 
 use crate::error::MiniplanError;
-use crate::ground::formula::term_to_string;
-use crate::ground::types::objects_of_type;
-use crate::task::{Fact, FactId, Object, Task, TypeHierarchy};
+use crate::ground::action::intern_fact;
+use crate::ground::formula::{ground_atom, term_to_string};
+use crate::ground::types::{Binding, generate_bindings, type_to_string};
+use crate::task::{Fact, Object, Task, TypeHierarchy};
 
+/// One `(:derived (head ?params) body)` rule.
 #[derive(Debug, Clone)]
 pub(crate) struct DerivedRule {
+    /// Name of the derived predicate, e.g. `can-place`.
     pub head_name: String,
+    /// Head parameters as `(variable, type name)` pairs, in declaration order.
     pub params: Vec<(String, String)>,
+    /// Rule body; refers only to static predicates.
     pub body: GoalDefinition,
 }
 
+/// All derived rules of a domain, validated by [`collect`].
 #[derive(Debug)]
 pub(crate) struct DerivedRuleSet {
+    /// Rules in declaration order.
     pub rules: Vec<DerivedRule>,
-    #[expect(dead_code)]
-    pub all_static: bool,
 }
 
+/// Collects and validates the domain's derived predicate rules.
+///
+/// # Errors
+///
+/// Returns [`MiniplanError::Ground`] when a derived predicate appears in an
+/// action effect, or its body references itself, another derived predicate, or
+/// a fluent predicate.
 pub(crate) fn collect(domain: &Domain) -> Result<DerivedRuleSet, MiniplanError> {
-    let mut rules = Vec::new();
-
     let fluent_names = extract_fluent_names(domain);
+    let derived_head_names: FxHashSet<String> = derived_predicates(domain)
+        .map(|dp| dp.predicate().predicate().to_string())
+        .collect();
 
-    // First pass: collect all derived head names
-    let mut derived_head_names: FxHashSet<String> = FxHashSet::default();
-    for def in domain.structure().iter() {
-        if let StructureDef::Derived(dp) = def {
-            let head_name = dp.predicate().predicate().to_string();
-            derived_head_names.insert(head_name);
-        }
-    }
+    let rules = derived_predicates(domain)
+        .map(|dp| validate_rule(dp, &fluent_names, &derived_head_names))
+        .collect::<Result<_, _>>()?;
 
-    for def in domain.structure().iter() {
-        if let StructureDef::Derived(dp) = def {
-            let head = dp.predicate();
-            let head_name = head.predicate().to_string();
-
-            if fluent_names.contains(&head_name) {
-                return Err(MiniplanError::Ground(format!(
-                    "derived predicate `{head_name}` appears in action effects; derived predicates cannot be fluents"
-                )));
-            }
-
-            let params: Vec<(String, String)> = head
-                .variables()
-                .iter()
-                .map(|tv| {
-                    let var = tv.value().to_string();
-                    let type_name = type_to_string(tv.type_());
-                    (var, type_name)
-                })
-                .collect();
-
-            let body = dp.expression();
-            let body_pred_names = collect_pred_names_in_gd(body);
-
-            for bp in &body_pred_names {
-                if bp == &head_name {
-                    return Err(MiniplanError::Ground(format!(
-                        "derived predicate `{head_name}` references itself; recursive derived predicates are not supported"
-                    )));
-                }
-            }
-
-            for dp_name in &body_pred_names {
-                if derived_head_names.contains(dp_name) && dp_name != &head_name {
-                    return Err(MiniplanError::Ground(format!(
-                        "derived predicate `{head_name}` references another derived predicate `{dp_name}`; multi-layer derived predicates are not yet supported"
-                    )));
-                }
-            }
-
-            for fp in &body_pred_names {
-                if fluent_names.contains(fp) {
-                    return Err(MiniplanError::Ground(format!(
-                        "derived predicate `{head_name}` references fluent predicate `{fp}`; only static-body derived predicates are supported"
-                    )));
-                }
-            }
-
-            rules.push(DerivedRule {
-                head_name,
-                params,
-                body: body.clone(),
-            });
-        }
-    }
-
-    let all_static = true;
-
-    Ok(DerivedRuleSet { rules, all_static })
+    Ok(DerivedRuleSet { rules })
 }
 
+/// Iterates over the `:derived` definitions of the domain in declaration order.
+fn derived_predicates(domain: &Domain) -> impl Iterator<Item = &DerivedPredicate> {
+    domain.structure().iter().filter_map(|def| {
+        if let StructureDef::Derived(dp) = def {
+            Some(dp)
+        } else {
+            None
+        }
+    })
+}
+
+/// Checks one derived predicate against the supported fragment and converts it
+/// into a [`DerivedRule`].
+///
+/// # Errors
+///
+/// Returns [`MiniplanError::Ground`] when the head is a fluent, or the body
+/// references the head itself, another derived predicate, or a fluent.
+fn validate_rule(
+    dp: &DerivedPredicate,
+    fluent_names: &FxHashSet<String>,
+    derived_head_names: &FxHashSet<String>,
+) -> Result<DerivedRule, MiniplanError> {
+    let head = dp.predicate();
+    let head_name = head.predicate().to_string();
+
+    if fluent_names.contains(&head_name) {
+        return Err(MiniplanError::Ground(format!(
+            "derived predicate `{head_name}` appears in action effects; derived predicates cannot be fluents"
+        )));
+    }
+
+    let body = dp.expression();
+    let body_pred_names = collect_pred_names_in_gd(body);
+    check_body_references(
+        &head_name,
+        &body_pred_names,
+        fluent_names,
+        derived_head_names,
+    )?;
+
+    Ok(DerivedRule {
+        params: typed_params(head.variables()),
+        head_name,
+        body: body.clone(),
+    })
+}
+
+/// Rejects bodies that reference the head itself, another derived predicate,
+/// or a fluent predicate, checked in that order.
+///
+/// # Errors
+///
+/// Returns [`MiniplanError::Ground`] naming the first offending predicate.
+fn check_body_references(
+    head_name: &str,
+    body_pred_names: &FxHashSet<String>,
+    fluent_names: &FxHashSet<String>,
+    derived_head_names: &FxHashSet<String>,
+) -> Result<(), MiniplanError> {
+    if body_pred_names.contains(head_name) {
+        return Err(MiniplanError::Ground(format!(
+            "derived predicate `{head_name}` references itself; recursive derived predicates are not supported"
+        )));
+    }
+
+    if let Some(dp_name) = body_pred_names
+        .iter()
+        .find(|name| derived_head_names.contains(*name))
+    {
+        return Err(MiniplanError::Ground(format!(
+            "derived predicate `{head_name}` references another derived predicate `{dp_name}`; multi-layer derived predicates are not yet supported"
+        )));
+    }
+
+    if let Some(fp) = body_pred_names
+        .iter()
+        .find(|name| fluent_names.contains(*name))
+    {
+        return Err(MiniplanError::Ground(format!(
+            "derived predicate `{head_name}` references fluent predicate `{fp}`; only static-body derived predicates are supported"
+        )));
+    }
+
+    Ok(())
+}
+
+/// Converts typed variables into `(variable, type name)` pairs.
+fn typed_params(vars: &[Typed<pddl::Variable>]) -> Vec<(String, String)> {
+    vars.iter()
+        .map(|tv| (tv.value().to_string(), type_to_string(tv.type_())))
+        .collect()
+}
+
+/// Returns the names of all predicates that some action adds or deletes.
 fn extract_fluent_names(domain: &Domain) -> FxHashSet<String> {
     let mut names = FxHashSet::default();
     for def in domain.structure().iter() {
         if let StructureDef::Action(action) = def {
-            collect_pred_names_in_effects(action.effect(), &mut names);
+            collect_pred_names_in_effects(action.effect().as_ref(), &mut names);
         }
     }
+
     names
 }
 
-fn collect_pred_names_in_effects(effects: &Option<pddl::Effects>, names: &mut FxHashSet<String>) {
-    let effects = match effects {
-        Some(e) => e,
-        None => return,
+/// Adds the predicate names touched by `effects` to `names`.
+fn collect_pred_names_in_effects(effects: Option<&Effects>, names: &mut FxHashSet<String>) {
+    let Some(effects) = effects else {
+        return;
     };
+
     for ce in effects.iter() {
         collect_pred_names_in_conditional_effect(ce, names);
     }
 }
 
-fn collect_pred_names_in_conditional_effect(
-    ce: &pddl::ConditionalEffect,
-    names: &mut FxHashSet<String>,
-) {
+/// Adds the predicate names touched by one effect, including nested `forall`
+/// and `when` bodies, to `names`.
+fn collect_pred_names_in_conditional_effect(ce: &ConditionalEffect, names: &mut FxHashSet<String>) {
     match ce {
-        pddl::ConditionalEffect::Effect(pe) => {
+        ConditionalEffect::Effect(pe) => {
             collect_pred_names_in_primitive_effect(pe, names);
         }
-        pddl::ConditionalEffect::Forall(forall) => {
-            for ce2 in forall.effects.iter() {
-                collect_pred_names_in_conditional_effect(ce2, names);
+        ConditionalEffect::Forall(forall) => {
+            for nested in forall.effects.iter() {
+                collect_pred_names_in_conditional_effect(nested, names);
             }
         }
-        pddl::ConditionalEffect::When(when) => match &when.effect {
-            pddl::EffectCondition::Single(pe) => {
+        ConditionalEffect::When(when) => match &when.effect {
+            EffectCondition::Single(pe) => {
                 collect_pred_names_in_primitive_effect(pe, names);
             }
-            pddl::EffectCondition::All(pes) => {
+            EffectCondition::All(pes) => {
                 for pe in pes {
                     collect_pred_names_in_primitive_effect(pe, names);
                 }
@@ -142,37 +195,30 @@ fn collect_pred_names_in_conditional_effect(
     }
 }
 
-fn collect_pred_names_in_primitive_effect(
-    pe: &pddl::PrimitiveEffect,
-    names: &mut FxHashSet<String>,
-) {
+/// Adds the predicate name of an add or delete effect to `names`; other
+/// effects are ignored.
+fn collect_pred_names_in_primitive_effect(pe: &PrimitiveEffect, names: &mut FxHashSet<String>) {
     match pe {
-        pddl::PrimitiveEffect::AtomicFormula(AtomicFormula::Predicate(pred))
-        | pddl::PrimitiveEffect::NotAtomicFormula(AtomicFormula::Predicate(pred)) => {
+        PrimitiveEffect::AtomicFormula(AtomicFormula::Predicate(pred))
+        | PrimitiveEffect::NotAtomicFormula(AtomicFormula::Predicate(pred)) => {
             names.insert(pred.predicate().to_string());
         }
         _ => {}
     }
 }
 
+/// Returns the names of all predicates mentioned anywhere in `gd`.
 fn collect_pred_names_in_gd(gd: &GoalDefinition) -> FxHashSet<String> {
     let mut names = FxHashSet::default();
     collect_pred_names_in_gd_inner(gd, &mut names);
     names
 }
 
+/// Recursive worker of [`collect_pred_names_in_gd`].
 fn collect_pred_names_in_gd_inner(gd: &GoalDefinition, names: &mut FxHashSet<String>) {
     match gd {
-        GoalDefinition::AtomicFormula(af) => {
-            if let AtomicFormula::Predicate(pred) = af {
-                names.insert(pred.predicate().to_string());
-            }
-        }
-        GoalDefinition::Literal(lit) => {
-            let af: &AtomicFormula<Term> = match lit {
-                Literal::AtomicFormula(af) => af,
-                Literal::NotAtomicFormula(af) => af,
-            };
+        GoalDefinition::AtomicFormula(af)
+        | GoalDefinition::Literal(Literal::AtomicFormula(af) | Literal::NotAtomicFormula(af)) => {
             if let AtomicFormula::Predicate(pred) = af {
                 names.insert(pred.predicate().to_string());
             }
@@ -196,15 +242,16 @@ fn collect_pred_names_in_gd_inner(gd: &GoalDefinition, names: &mut FxHashSet<Str
     }
 }
 
-fn type_to_string(t: &Type) -> String {
-    match t {
-        Type::Exactly(pt) => pt.to_string(),
-        Type::EitherOf(pts) => pts
-            .first()
-            .map_or_else(|| "object".to_owned(), std::string::ToString::to_string),
-    }
-}
-
+/// Evaluates every rule against the initial state and adds the derived facts
+/// to `task.init` (and to the fact universe, should one be missing).
+///
+/// All rules are evaluated against the original initial facts, so derived
+/// facts never feed into other rules.
+///
+/// # Errors
+///
+/// Returns [`MiniplanError::Ground`] when a rule body contains a numeric
+/// comparison.
 pub(crate) fn expand_into_init_with_rules(
     task: &mut Task,
     rule_set: &DerivedRuleSet,
@@ -221,35 +268,20 @@ pub(crate) fn expand_into_init_with_rules(
         .collect();
 
     for rule in &rule_set.rules {
-        let arity = rule.params.len();
-        if arity == 0 {
-            let result = eval_gd(&rule.body, &[], &init_facts, &task.objects, &task.types)?;
-            if result {
+        let bindings_list = generate_bindings(&rule.params, &task.objects, &task.types);
+        for bindings in &bindings_list {
+            if eval_gd(
+                &rule.body,
+                bindings,
+                &init_facts,
+                &task.objects,
+                &task.types,
+            )? {
                 let fact = Fact {
                     predicate: rule.head_name.clone(),
-                    args: vec![],
+                    args: bindings.iter().map(|(_, v)| v.clone()).collect(),
                 };
-                add_derived_fact(task, &fact);
-            }
-        } else {
-            let bindings_list =
-                generate_bindings_for_params(&rule.params, &task.objects, &task.types)?;
-            for bindings in &bindings_list {
-                let result = eval_gd(
-                    &rule.body,
-                    bindings,
-                    &init_facts,
-                    &task.objects,
-                    &task.types,
-                )?;
-                if result {
-                    let args: Vec<String> = bindings.iter().map(|(_, v)| v.clone()).collect();
-                    let fact = Fact {
-                        predicate: rule.head_name.clone(),
-                        args,
-                    };
-                    add_derived_fact(task, &fact);
-                }
+                add_derived_fact(task, fact);
             }
         }
     }
@@ -257,207 +289,146 @@ pub(crate) fn expand_into_init_with_rules(
     Ok(())
 }
 
-fn add_derived_fact(task: &mut Task, fact: &Fact) {
-    #[expect(clippy::map_entry)]
-    if task.fact_index.contains_key(fact) {
-        let id = *task.fact_index.get(fact).unwrap();
-        task.init.set(id, true);
-    } else {
-        let id = FactId(task.facts.len());
-        task.facts.push(fact.clone());
-        task.fact_index.insert(fact.clone(), id);
-        task.init.set(id, true);
-    }
+/// Marks `fact` as true in the initial state, interning it first if needed.
+fn add_derived_fact(task: &mut Task, fact: Fact) {
+    let id = intern_fact(&mut task.facts, &mut task.fact_index, fact);
+    task.init.set(id, true);
 }
 
-fn generate_bindings_for_params(
-    params: &[(String, String)],
-    objects: &[Object],
-    types: &TypeHierarchy,
-) -> Result<Vec<Vec<(String, String)>>, MiniplanError> {
-    if params.is_empty() {
-        return Ok(vec![vec![]]);
-    }
-
-    let param_objects: Vec<Vec<&str>> = params
-        .iter()
-        .map(|(_, sort)| objects_of_type(objects, sort, types))
-        .collect();
-
-    let mut results = Vec::new();
-    let mut indices = vec![0usize; params.len()];
-    let counts: Vec<usize> = param_objects.iter().map(std::vec::Vec::len).collect();
-
-    if counts.contains(&0) {
-        return Ok(results);
-    }
-
-    loop {
-        let binding: Vec<(String, String)> = params
-            .iter()
-            .enumerate()
-            .map(|(i, (name, _))| (name.clone(), param_objects[i][indices[i]].to_owned()))
-            .collect();
-        results.push(binding);
-
-        let mut idx = params.len() - 1;
-        loop {
-            indices[idx] += 1;
-            if indices[idx] < counts[idx] {
-                break;
-            }
-            indices[idx] = 0;
-            if idx == 0 {
-                return Ok(results);
-            }
-            idx -= 1;
-        }
-    }
-}
-
+/// Evaluates a goal definition under `bindings` against a fixed fact set.
+///
+/// Unlike [`walk_goal_definition`](crate::ground::formula::walk_goal_definition),
+/// quantifiers are expanded over the typed `objects`, and `imply` is supported.
+///
+/// # Errors
+///
+/// Returns [`MiniplanError::Ground`] when `gd` contains a numeric comparison.
 pub(crate) fn eval_gd(
     gd: &GoalDefinition,
-    bindings: &[(String, String)],
+    bindings: &[Binding],
     facts: &FxHashSet<Fact>,
     objects: &[Object],
     types: &TypeHierarchy,
 ) -> Result<bool, MiniplanError> {
+    let eval = |g: &GoalDefinition| eval_gd(g, bindings, facts, objects, types);
+
     match gd {
-        GoalDefinition::AtomicFormula(af) => eval_atomic_formula(af, bindings, facts),
-        GoalDefinition::Literal(lit) => eval_literal(lit, bindings, facts),
+        GoalDefinition::AtomicFormula(af) => Ok(eval_atomic_formula(af, bindings, facts)),
+        GoalDefinition::Literal(lit) => Ok(eval_literal(lit, bindings, facts)),
         GoalDefinition::And(gds) => {
             for g in gds {
-                if !eval_gd(g, bindings, facts, objects, types)? {
+                if !eval(g)? {
                     return Ok(false);
                 }
             }
+
             Ok(true)
         }
         GoalDefinition::Or(gds) => {
             for g in gds {
-                if eval_gd(g, bindings, facts, objects, types)? {
+                if eval(g)? {
                     return Ok(true);
                 }
             }
+
             Ok(false)
         }
-        GoalDefinition::Not(inner) => {
-            let result = eval_gd(inner, bindings, facts, objects, types)?;
-            Ok(!result)
-        }
+        GoalDefinition::Not(inner) => Ok(!eval(inner)?),
         GoalDefinition::Imply(a, b) => {
-            let a_val = eval_gd(a, bindings, facts, objects, types)?;
-            if !a_val {
+            if !eval(a)? {
                 return Ok(true);
             }
-            eval_gd(b, bindings, facts, objects, types)
+
+            eval(b)
         }
-        GoalDefinition::Exists(vars, body) => {
-            let typed_params: Vec<(String, String)> = vars
-                .iter()
-                .map(|tv| {
-                    let var = tv.value().to_string();
-                    let type_name = type_to_string(tv.type_());
-                    (var, type_name)
-                })
-                .collect();
-            let bindings_list = generate_bindings_for_params(&typed_params, objects, types)?;
-            for ext_bindings in &bindings_list {
-                let mut combined = ext_bindings.clone();
-                combined.extend(bindings.to_vec());
-                if eval_gd(body, &combined, facts, objects, types)? {
-                    return Ok(true);
-                }
-            }
-            Ok(false)
-        }
-        GoalDefinition::ForAll(vars, body) => {
-            let typed_params: Vec<(String, String)> = vars
-                .iter()
-                .map(|tv| {
-                    let var = tv.value().to_string();
-                    let type_name = type_to_string(tv.type_());
-                    (var, type_name)
-                })
-                .collect();
-            let bindings_list = generate_bindings_for_params(&typed_params, objects, types)?;
-            for ext_bindings in &bindings_list {
-                let mut combined = ext_bindings.clone();
-                combined.extend(bindings.to_vec());
-                if !eval_gd(body, &combined, facts, objects, types)? {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        }
+        GoalDefinition::Exists(vars, body) => eval_quantified(
+            Quantifier::Exists,
+            vars,
+            body,
+            bindings,
+            facts,
+            objects,
+            types,
+        ),
+        GoalDefinition::ForAll(vars, body) => eval_quantified(
+            Quantifier::ForAll,
+            vars,
+            body,
+            bindings,
+            facts,
+            objects,
+            types,
+        ),
         GoalDefinition::FluentComparison(_) => Err(MiniplanError::Ground(
             "numeric comparisons in derived predicate bodies are not supported".into(),
         )),
     }
 }
 
+/// The two quantifiers of PDDL goal definitions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Quantifier {
+    /// `exists`: true if the body holds for at least one assignment.
+    Exists,
+    /// `forall`: true if the body holds for every assignment.
+    ForAll,
+}
+
+/// Evaluates `(exists vars body)` or `(forall vars body)` by trying every
+/// assignment of objects to `vars`, short-circuiting on the first decisive one.
+///
+/// The quantified variables shadow outer `bindings` of the same name. With no
+/// assignment at all, `exists` is false and `forall` is true.
+///
+/// # Errors
+///
+/// Returns [`MiniplanError::Ground`] when `body` contains a numeric
+/// comparison.
+fn eval_quantified(
+    quantifier: Quantifier,
+    vars: &[Typed<pddl::Variable>],
+    body: &GoalDefinition,
+    bindings: &[Binding],
+    facts: &FxHashSet<Fact>,
+    objects: &[Object],
+    types: &TypeHierarchy,
+) -> Result<bool, MiniplanError> {
+    let decisive = quantifier == Quantifier::Exists;
+
+    for inner_bindings in generate_bindings(&typed_params(vars), objects, types) {
+        let mut combined = inner_bindings;
+        combined.extend_from_slice(bindings);
+        if eval_gd(body, &combined, facts, objects, types)? == decisive {
+            return Ok(decisive);
+        }
+    }
+
+    Ok(!decisive)
+}
+
+/// Evaluates an atomic formula: equality compares the grounded names,
+/// a predicate is looked up in `facts`.
 fn eval_atomic_formula(
     af: &AtomicFormula<Term>,
-    bindings: &[(String, String)],
+    bindings: &[Binding],
     facts: &FxHashSet<Fact>,
-) -> Result<bool, MiniplanError> {
+) -> bool {
     match af {
         AtomicFormula::Equality(eq) => {
-            let first = term_to_string(eq.first(), bindings);
-            let second = term_to_string(eq.second(), bindings);
-            Ok(first == second)
+            term_to_string(eq.first(), bindings) == term_to_string(eq.second(), bindings)
         }
         AtomicFormula::Predicate(pred) => {
-            let name = pred.predicate().to_string();
-            let args: Vec<String> = pred
-                .values()
-                .iter()
-                .map(|t| term_to_string(t, bindings))
-                .collect();
-            let fact = Fact {
-                predicate: name,
-                args,
-            };
-            Ok(facts.contains(&fact))
+            let (predicate, args) = ground_atom(pred, bindings);
+            facts.contains(&Fact { predicate, args })
         }
     }
 }
 
-fn eval_literal(
-    lit: &Literal<Term>,
-    bindings: &[(String, String)],
-    facts: &FxHashSet<Fact>,
-) -> Result<bool, MiniplanError> {
-    if lit.is_negated() {
-        if let Literal::NotAtomicFormula(af) = lit {
-            let result = eval_atomic_formula(af, bindings, facts)?;
-            Ok(!result)
-        } else {
-            eval_literal_inner(lit, bindings, facts)
-        }
-    } else {
-        if let Literal::AtomicFormula(af) = lit {
-            eval_atomic_formula(af, bindings, facts)
-        } else {
-            eval_literal_inner(lit, bindings, facts)
-        }
-    }
-}
-
-fn eval_literal_inner(
-    lit: &Literal<Term>,
-    bindings: &[(String, String)],
-    facts: &FxHashSet<Fact>,
-) -> Result<bool, MiniplanError> {
-    let af: &AtomicFormula<Term> = match lit {
-        Literal::AtomicFormula(af) => af,
-        Literal::NotAtomicFormula(af) => af,
-    };
-    let result = eval_atomic_formula(af, bindings, facts)?;
-    if lit.is_negated() {
-        Ok(!result)
-    } else {
-        Ok(result)
+/// Evaluates a possibly negated atomic formula.
+fn eval_literal(lit: &Literal<Term>, bindings: &[Binding], facts: &FxHashSet<Fact>) -> bool {
+    match lit {
+        Literal::AtomicFormula(af) => eval_atomic_formula(af, bindings, facts),
+        Literal::NotAtomicFormula(af) => !eval_atomic_formula(af, bindings, facts),
     }
 }
 
@@ -466,22 +437,80 @@ mod tests {
     use super::*;
     use pddl::{Domain, Parser, Problem};
 
+    /// Domain whose `can-place` rule combines `or`, `exists` and static facts.
+    const MINI_CAN_DOMAIN: &str = r"
+(define (domain mini-can)
+  (:requirements :strips :typing :derived-predicates)
+  (:types disc - location)
+  (:predicates (smaller ?d1 - disc ?d2 - disc) (on ?d - disc ?x - location) (is-peg ?x - location) (done))
+  (:derived (can-place ?d - disc ?x - location)
+    (or
+      (is-peg ?x)
+      (exists (?od - disc)
+        (and
+          (on ?d ?od)
+          (smaller ?d ?od)
+        )
+      )
+    )
+  )
+  (:action move
+    :parameters (?d - disc ?from ?to - location)
+    :precondition (can-place ?d ?to)
+    :effect (done)
+  )
+)
+";
+
+    /// Problem for [`MINI_CAN_DOMAIN`]: `d1` sits on the larger `d2`.
+    const MINI_CAN_PROBLEM: &str = r"
+(define (problem mini-can-1)
+  (:domain mini-can)
+  (:objects d1 d2 - disc peg1 peg2 - location)
+  (:init
+    (on d1 d2)
+    (smaller d1 d2)
+    (is-peg peg1)
+    (is-peg peg2)
+  )
+  (:goal (done))
+)
+";
+
+    /// Parses a domain, panicking on invalid input.
     fn parse_domain(src: &str) -> Domain {
         let (_, domain) = Domain::parse_span(src.into()).expect("domain should parse");
         domain
     }
 
+    /// Parses a problem, panicking on invalid input.
     fn parse_problem(src: &str) -> Problem {
         let (_, problem) = Problem::parse_span(src.into()).expect("problem should parse");
         problem
     }
 
+    /// Parses and grounds a domain/problem pair, panicking on any error.
     fn ground_task(domain_src: &str, problem_src: &str) -> Task {
         let domain = parse_domain(domain_src);
         let problem = parse_problem(problem_src);
         crate::ground::ground(&domain, &problem).expect("grounding should succeed")
     }
 
+    /// Builds the fact `predicate(args...)`.
+    fn fact(predicate: &str, args: &[&str]) -> Fact {
+        Fact {
+            predicate: predicate.to_owned(),
+            args: args.iter().map(|&a| a.to_owned()).collect(),
+        }
+    }
+
+    /// Whether `fact` exists in the universe and holds in the initial state.
+    fn holds_in_init(task: &Task, fact: &Fact) -> bool {
+        task.fact_id(fact).is_some_and(|id| task.init.contains(id))
+    }
+
+    /// A static derived rule adds its facts to the initial state and enables
+    /// the operators that depend on it.
     #[test]
     fn derived_static_expands_to_facts() {
         let domain = r"
@@ -507,10 +536,7 @@ mod tests {
 ";
         let task = ground_task(domain, problem);
 
-        let red_a = Fact {
-            predicate: "red".to_owned(),
-            args: vec!["a".to_owned()],
-        };
+        let red_a = fact("red", &["a"]);
         let id = task.fact_id(&red_a).expect("red(a) fact should exist");
         assert!(task.init.contains(id), "red(a) should be true in init");
 
@@ -525,79 +551,27 @@ mod tests {
         );
     }
 
+    /// Quantified bodies are expanded over typed objects: `exists` finds the
+    /// disc below `d1`, and no fact is derived where no disjunct holds.
     #[test]
     fn derived_with_exists_and_equality() {
-        let domain = r"
-(define (domain mini-can)
-  (:requirements :strips :typing :derived-predicates)
-  (:types disc - location)
-  (:predicates (smaller ?d1 - disc ?d2 - disc) (on ?d - disc ?x - location) (is-peg ?x - location) (done))
-  (:derived (can-place ?d - disc ?x - location)
-    (or
-      (is-peg ?x)
-      (exists (?od - disc)
-        (and
-          (on ?d ?od)
-          (smaller ?d ?od)
-        )
-      )
-    )
-  )
-  (:action move
-    :parameters (?d - disc ?from ?to - location)
-    :precondition (can-place ?d ?to)
-    :effect (done)
-  )
-)
-";
+        let task = ground_task(MINI_CAN_DOMAIN, MINI_CAN_PROBLEM);
 
-        let problem = r"
-(define (problem mini-can-1)
-  (:domain mini-can)
-  (:objects d1 d2 - disc peg1 peg2 - location)
-  (:init
-    (on d1 d2)
-    (smaller d1 d2)
-    (is-peg peg1)
-    (is-peg peg2)
-  )
-  (:goal (done))
-)
-";
-        let task = ground_task(domain, problem);
-
-        let can_place_d1_peg1 = Fact {
-            predicate: "can-place".to_owned(),
-            args: vec!["d1".to_owned(), "peg1".to_owned()],
-        };
-        let can_place_d1_d2 = Fact {
-            predicate: "can-place".to_owned(),
-            args: vec!["d1".to_owned(), "d2".to_owned()],
-        };
-        let can_place_d2_d1 = Fact {
-            predicate: "can-place".to_owned(),
-            args: vec!["d2".to_owned(), "d1".to_owned()],
-        };
-
-        let id1 = task.fact_id(&can_place_d1_peg1);
         assert!(
-            id1.is_some() && task.init.contains(id1.unwrap()),
+            holds_in_init(&task, &fact("can-place", &["d1", "peg1"])),
             "can-place(d1,peg1) should be true"
         );
-
-        let id2 = task.fact_id(&can_place_d1_d2);
         assert!(
-            id2.is_some() && task.init.contains(id2.unwrap()),
+            holds_in_init(&task, &fact("can-place", &["d1", "d2"])),
             "can-place(d1,d2) should be true"
         );
-
-        let id3 = task.fact_id(&can_place_d2_d1);
         assert!(
-            id3.is_none_or(|id| !task.init.contains(id)),
+            !holds_in_init(&task, &fact("can-place", &["d2", "d1"])),
             "can-place(d2,d1) should be false"
         );
     }
 
+    /// A rule whose body reads an action-modified predicate is rejected.
     #[test]
     fn derived_rejects_fluent_body() {
         let domain = r"
@@ -630,6 +604,7 @@ mod tests {
         );
     }
 
+    /// A rule whose body reads another derived predicate is rejected.
     #[test]
     fn derived_rejects_recursive_reference() {
         let domain = r"
