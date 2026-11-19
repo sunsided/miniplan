@@ -77,6 +77,13 @@ repos:
         files: ^(docs/review/|\.github/instructions/)
         pass_filenames: false
 
+      - id: mermaid
+        name: mermaid diagrams render
+        entry: task lint:mermaid
+        language: system
+        types_or: [markdown, rust]
+        pass_filenames: false
+
       - id: check
         name: cargo check
         entry: task check
