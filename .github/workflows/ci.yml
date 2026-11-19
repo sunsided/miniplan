@@ -21,8 +21,9 @@ env:
 jobs:
   branch:
     name: branch name
-    # Runs on PRs and merge queues (detached HEAD passes) so it can be a required check.
-    if: github.event_name != 'push'
+    # PRs only: merge-queue and push runs have no head branch to check. A skipped job still
+    # satisfies the required check in the merge queue.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read

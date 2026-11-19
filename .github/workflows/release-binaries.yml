@@ -120,10 +120,18 @@ jobs:
           merge-multiple: true
       - name: Upload to the GitHub Release (created by release-plz; wait for it)
         run: |
-          for _ in $(seq 1 30); do
-            gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+          found=false
+          for _ in $(seq 1 60); do
+            if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              found=true
+              break
+            fi
             sleep 10
           done
+          if [ "$found" != true ]; then
+            echo "::error::No GitHub Release for $GITHUB_REF_NAME after 10 minutes; check the release-plz run."
+            exit 1
+          fi
           gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
