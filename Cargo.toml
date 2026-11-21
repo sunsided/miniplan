@@ -20,7 +20,7 @@ clap = { version = "4", features = ["derive"] }
 fixedbitset = "0.5"
 indexmap = "2"
 miniplan = { version = "0.2.0", path = "crates/miniplan" }
-pddl = "0.2.0"
+pddl = "0.3.1"
 pretty_assertions = "1"
 proptest = "1.12"
 criterion = "0.8.2"

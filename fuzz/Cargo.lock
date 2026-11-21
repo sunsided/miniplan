@@ -157,9 +157,9 @@ dependencies = [
 
 [[package]]
 name = "pddl"
-version = "0.2.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c929cf4ccd605923dbccb45e9991a9443ee476fa113b6d7c742239a046f1cde7"
+checksum = "3db6fdd69a28c6474b8bfb3f4450d5cee679429e4f792adf91641250a5840943"
 dependencies = [
  "nom",
  "nom_locate",
