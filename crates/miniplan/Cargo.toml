@@ -1,6 +1,6 @@
 [package]
 name = "miniplan"
-description = "A PDDL planner library built around the pddl crate, with grounding and search utilities"
+description = "Grounded classical PDDL planner library with breadth-first, A*, greedy best-first and bidirectional search and h^FF, h^add and h^max heuristics"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -13,7 +13,14 @@ A PDDL planner library built around the [`pddl`](https://github.com/sunsided/pdd
 [![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance/)
 <!-- [![GitHub Stars](https://img.shields.io/github/stars/sunsided/miniplan?style=social)](https://github.com/sunsided/miniplan) -->
 
-**miniplan** is a grounded, classical PDDL planner focused on simplicity and performance. It targets STRIPS-level domains with support for typing, negative preconditions, and conditional effects. Use it as a library in your own projects or as a CLI (`miniplan`) for quick planning experiments.
+**miniplan** is a grounded, classical PDDL planner that you can use as a Rust library or as the `miniplan` command-line tool. It reads PDDL with the [`pddl`](https://github.com/sunsided/pddl-rs) crate, grounds the task into a compact bitset representation and searches it with breadth-first search, A*, greedy best-first search or one of four bidirectional searches (bidirectional Dijkstra and BFS, NBS and BAE*), guided by h^FF, h^add, h^max or the goal count. It handles STRIPS with typing, negative preconditions, conditional effects, disjunctive preconditions and derived predicates, and writes plans as plain text, in IPC format or as JSON. The CLI also has an interactive terminal UI for trying planners on a problem.
+
+## Who this is for
+
+- Students and engineers learning classical planning, who want a planner small enough to read end to end, with the textbook searches and heuristics side by side.
+- Rust developers who need to solve small and medium PDDL tasks (puzzles, logistics, robot task sequencing) in-process, without shelling out to an external planner.
+- Researchers comparing forward, bidirectional and heuristic search on the same grounded task, with node counts and timings from `--stats`.
+- If you only need to parse, check or write PDDL, use [`pddl-rs`](https://github.com/sunsided/pddl-rs) directly. For heuristic search over your own graph rather than a PDDL task, see [`heuristic-search`](https://github.com/sunsided/heuristic-search), and for width-based search without a heuristic, [`width-search`](https://github.com/sunsided/width-search).
 
 ## Features
 
@@ -32,6 +39,7 @@ A PDDL planner library built around the [`pddl`](https://github.com/sunsided/pdd
 - **Output formats**: plain, IPC, JSON
 - **Search limits**: time budget, node budget
 - **Structured logging** via `tracing`
+- **Interactive terminal UI** (`miniplan tui`) for picking a problem, tuning the solver and viewing the plan
 
 ## Installation
 
@@ -39,7 +47,7 @@ A PDDL planner library built around the [`pddl`](https://github.com/sunsided/pdd
 
 ```toml
 [dependencies]
-miniplan = "0.1"
+miniplan = "0.2"
 ```
 
 ### CLI
@@ -56,12 +64,6 @@ CycloneDX SBOM and build attestations; verify a download with:
 
 ```bash
 gh attestation verify <archive-or-binary> --repo sunsided/miniplan
-```
-
-Or install from the git repository:
-
-```bash
-cargo install --git https://github.com/sunsided/miniplan miniplan-cli
 ```
 
 ### Build from source
@@ -132,13 +134,14 @@ Available heuristics:
 | `solve` | Solve a PDDL problem |
 | `check` | Parse and ground a problem (no search) |
 | `list-planners` | Show available planners and heuristics |
+| `tui` | Interactive terminal UI: pick a domain and problem, tune the solver, run it and view the plan |
 
 ### `solve` Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-p, --planner` | `astar` | Planner to use (`bfs`, `astar`, `gbfs`, `bidij`, `bibfs-uc`, `nbs`, `bae`) |
-| `-H, --heuristic` | `ff` | Heuristic (`hff`, `hadd`, `hmax`, `goal-count`, `blind`) |
+| `-H, --heuristic` | `ff` (h^FF) | Heuristic (`hff`, `hadd`, `hmax`, `goal-count`, `blind`) |
 | `-t, --timeout` | — | Time budget (e.g. `30s`, `2m`) |
 | `--max-nodes` | — | Maximum nodes to expand |
 | `-o, --output` | `-` | Output file (`-` for stdout) |
@@ -264,7 +267,7 @@ crates/miniplan/         Core library
     heuristic/           Heuristic implementations (h^FF, h^add, h^max, …)
     pddl_io.rs           PDDL file loading
     plan.rs              Plan representation and formatting
-    search/              Planner implementations (BFS, A*, GBFS)
+    search/              Planner implementations (BFS, A*, GBFS, bidirectional searches)
     task.rs              Grounded task representation
     util/                Utilities (bitsets, etc.)
 bins/miniplan-cli/       CLI binary (produces `miniplan`)
@@ -274,8 +277,9 @@ Taskfile.dist.yaml       Task definitions
 
 ## Roadmap
 
-- **Current**: grounded STRIPS, BFS/A*/GBFS, h^FF
-- **Planned**: landmark heuristics, plan validation, more PDDL coverage (numerics, durative actions)
+- Landmark heuristics
+- Plan validation
+- More PDDL coverage: numeric fluents and durative actions
 
 ## MSRV
 

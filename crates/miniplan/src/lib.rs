@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-//! A PDDL planner library built around the [`pddl`](https://crates.io/crates/pddl) crate.
+//! A grounded, classical PDDL planner library built around the [`pddl`](https://crates.io/crates/pddl) crate.
 //!
 //! `miniplan` is primarily a **planner** — it takes a parsed PDDL domain and problem,
 //! grounds them into a state-space representation, and solves them using a collection
