@@ -58,7 +58,7 @@ jobs:
         with:
           tool: cargo-auditable
       - name: Build (cargo auditable embeds the dependency tree)
-        run: cargo auditable build --release --locked -p "$CRATE" --bin "$BIN" --target "$TARGET"
+        run: cargo auditable build --release -p "$CRATE" --bin "$BIN" --target "$TARGET"
         env:
           TARGET: ${{ matrix.target }}
       - name: Extract the SBOM from the binary

@@ -1,3 +1,4 @@
 /target
 lcov.info
 /.claude/worktrees/
+Cargo.lock
