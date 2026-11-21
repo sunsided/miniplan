@@ -32,10 +32,10 @@ jobs:
       - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           tool: cargo-nextest
-      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      - run: cargo nextest run --workspace --all-features --locked
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo nextest run --workspace --all-features
       # Remove for binary-only crates (no library target, no doctests).
-      - run: cargo test --workspace --all-features --doc --locked
+      - run: cargo test --workspace --all-features --doc
 
   crates-io:
     name: publish to crates.io
@@ -95,11 +95,11 @@ jobs:
         # retry while a workspace dependency's new version is not on the index yet.
         run: |
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            if cargo publish -p "$CRATE" --locked 2> publish.log; then
+            if cargo publish -p "$CRATE" 2> "$RUNNER_TEMP/publish.log"; then
               exit 0
             fi
-            cat publish.log >&2
-            grep -qE 'failed to select a version|no matching package named' publish.log || exit 1
+            cat "$RUNNER_TEMP/publish.log" >&2
+            grep -qE 'failed to select a version|no matching package named' "$RUNNER_TEMP/publish.log" || exit 1
             echo "::notice::dependency of $CRATE not on crates.io yet (attempt $attempt); retrying in 60s"
             sleep 60
           done

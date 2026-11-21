@@ -209,7 +209,7 @@ tasks:
       - sh: cargo auditable --version
         msg: "cargo-auditable not found - cargo install --locked cargo-auditable"
     cmds:
-      - cargo auditable build --release --locked {{.CLI_ARGS}}
+      - cargo auditable build --release {{.CLI_ARGS}}
 
   dist:sbom:
     desc: "Write a CycloneDX SBOM extracted from a built binary (BIN=name)"
