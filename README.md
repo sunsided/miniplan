@@ -15,6 +15,8 @@ A PDDL planner library built around the [`pddl`](https://github.com/sunsided/pdd
 
 **miniplan** is a grounded, classical PDDL planner focused on simplicity and performance. It targets STRIPS-level domains with support for typing, negative preconditions, and conditional effects. Use it as a library in your own projects or as a CLI (`miniplan`) for quick planning experiments.
 
+Part of the [planning and search crates](https://sunsided.github.io/planning-and-search/); see also this crate's [overview page](https://sunsided.github.io/planning-and-search/crates/miniplan/).
+
 ## Features
 
 - **PDDL 3.x parsing** via [pddl-rs](https://github.com/sunsided/pddl-rs)
