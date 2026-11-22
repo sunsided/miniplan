@@ -8,6 +8,7 @@ edition = "2024"
 rust-version = "1.88"
 license = "EUPL-1.2"
 repository = "https://github.com/sunsided/miniplan"
+homepage = "https://sunsided.github.io/planning-and-search/crates/miniplan/"
 authors = ["Markus Mayer <widemeadows@gmail.com>"]
 keywords = ["pddl", "planning", "planner", "a-star", "classical-planning"]
 categories = ["algorithms", "artificial-intelligence", "science"]

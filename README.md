@@ -22,6 +22,8 @@ A PDDL planner library built around the [`pddl`](https://github.com/sunsided/pdd
 - Researchers comparing forward, bidirectional and heuristic search on the same grounded task, with node counts and timings from `--stats`.
 - If you only need to parse, check or write PDDL, use [`pddl-rs`](https://github.com/sunsided/pddl-rs) directly. For heuristic search over your own graph rather than a PDDL task, see [`heuristic-search`](https://github.com/sunsided/heuristic-search), and for width-based search without a heuristic, [`width-search`](https://github.com/sunsided/width-search).
 
+Part of the [planning and search crates](https://sunsided.github.io/planning-and-search/); see also this crate's [overview page](https://sunsided.github.io/planning-and-search/crates/miniplan/).
+
 ## Features
 
 - **PDDL 3.x parsing** via [pddl-rs](https://github.com/sunsided/pddl-rs)
