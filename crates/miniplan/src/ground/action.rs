@@ -31,7 +31,12 @@ use crate::task::{Fact, FactId, Object, OpId, Operator, State, Task, TaskMeta};
 /// - the goal is unsatisfiable (its disjunctive normal form is empty);
 /// - the goal or an action precondition or `when` condition uses a negated
 ///   non-atomic formula, `imply`, or a numeric comparison.
+///
+/// Returns [`MiniplanError::Unsupported`] when the domain has a PDDL+
+/// `:process` or `:event`.
 pub fn ground(domain: &Domain, problem: &Problem) -> Result<Task, MiniplanError> {
+    reject_pddl_plus(domain)?;
+
     let types = extract_types(domain);
     let objects = extract_objects(domain, problem);
 
@@ -65,6 +70,28 @@ pub fn ground(domain: &Domain, problem: &Problem) -> Result<Task, MiniplanError>
     ground_actions(&mut task, domain)?;
 
     Ok(task)
+}
+
+/// Fails on the first PDDL+ process or event of the domain.
+///
+/// Both change the state on their own, so grounding only the actions would
+/// plan as if they did not exist.
+///
+/// # Errors
+///
+/// Returns [`MiniplanError::Unsupported`] naming the process or event.
+fn reject_pddl_plus(domain: &Domain) -> Result<(), MiniplanError> {
+    for def in domain.structure().iter() {
+        let unsupported = match def {
+            StructureDef::Process(process) => format!("PDDL+ process `{}`", **process.symbol()),
+            StructureDef::Event(event) => format!("PDDL+ event `{}`", **event.symbol()),
+            _ => continue,
+        };
+
+        return Err(MiniplanError::Unsupported(unsupported));
+    }
+
+    Ok(())
 }
 
 /// Enumerates every fact that can exist: each domain predicate and each
