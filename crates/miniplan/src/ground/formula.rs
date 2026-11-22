@@ -1,11 +1,11 @@
 //! Goal formulas to disjunctive normal form, and literal sets to fact bitsets.
 //!
-//! [`walk_goal_definition`] ignores the variables bound by `exists` and
+//! [`walk_goal_description`] ignores the variables bound by `exists` and
 //! `forall` (it drops them and walks the body under the outer bindings). For
 //! quantifier-aware evaluation of derived-predicate bodies, use
 //! [`derived::eval_gd`](crate::ground::derived::eval_gd) instead.
 
-use pddl::{AtomicFormula, FunctionTerm, GoalDefinition, Literal, PredicateAtomicFormula, Term};
+use pddl::{AtomicFormula, FunctionTerm, GoalDescription, Literal, PredicateAtomicFormula, Term};
 
 use crate::error::MiniplanError;
 use crate::ground::types::Binding;
@@ -38,36 +38,36 @@ pub(super) struct LiteralSet {
 ///
 /// Returns [`MiniplanError::Ground`] for a negated non-atomic formula, an
 /// `imply`, or a numeric comparison anywhere in `gd`.
-pub(super) fn walk_goal_definition(
-    gd: &GoalDefinition,
+pub(super) fn walk_goal_description(
+    gd: &GoalDescription,
     bindings: &[Binding],
 ) -> Result<Vec<LiteralSet>, MiniplanError> {
     match gd {
-        GoalDefinition::AtomicFormula(af) => Ok(vec![walk_atomic_formula(af, bindings)]),
-        GoalDefinition::Literal(lit) => Ok(walk_literal(lit, bindings)),
-        GoalDefinition::And(gds) => walk_conjunction(gds, bindings),
-        GoalDefinition::Or(gds) => {
+        GoalDescription::AtomicFormula(af) => Ok(vec![walk_atomic_formula(af, bindings)]),
+        GoalDescription::Literal(lit) => Ok(walk_literal(lit, bindings)),
+        GoalDescription::And(gds) => walk_conjunction(gds, bindings),
+        GoalDescription::Or(gds) => {
             let mut all = Vec::new();
             for g in gds {
-                all.extend(walk_goal_definition(g, bindings)?);
+                all.extend(walk_goal_description(g, bindings)?);
             }
 
             Ok(all)
         }
-        GoalDefinition::Not(inner) => match inner.as_ref() {
-            GoalDefinition::AtomicFormula(af) => Ok(walk_negated_atomic_formula(af, bindings)),
-            GoalDefinition::Literal(lit) => Ok(walk_negated_literal(lit, bindings)),
+        GoalDescription::Not(inner) => match inner.as_ref() {
+            GoalDescription::AtomicFormula(af) => Ok(walk_negated_atomic_formula(af, bindings)),
+            GoalDescription::Literal(lit) => Ok(walk_negated_literal(lit, bindings)),
             _ => Err(MiniplanError::Ground(
                 "negation of non-atom in goal not supported".into(),
             )),
         },
-        GoalDefinition::Imply(_, _) => {
+        GoalDescription::Imply(_, _) => {
             Err(MiniplanError::Ground("imply in goal not supported".into()))
         }
-        GoalDefinition::ForAll(_, body) | GoalDefinition::Exists(_, body) => {
-            walk_goal_definition(body, bindings)
+        GoalDescription::ForAll(_, body) | GoalDescription::Exists(_, body) => {
+            walk_goal_description(body, bindings)
         }
-        GoalDefinition::FluentComparison(_) => Err(MiniplanError::Ground(
+        GoalDescription::FluentComparison(_) => Err(MiniplanError::Ground(
             "numeric comparison in goal not supported in v1".into(),
         )),
     }
@@ -78,14 +78,14 @@ pub(super) fn walk_goal_definition(
 ///
 /// # Errors
 ///
-/// Propagates the errors of [`walk_goal_definition`] for any operand.
+/// Propagates the errors of [`walk_goal_description`] for any operand.
 fn walk_conjunction(
-    gds: &[GoalDefinition],
+    gds: &[GoalDescription],
     bindings: &[Binding],
 ) -> Result<Vec<LiteralSet>, MiniplanError> {
     let mut results = vec![LiteralSet::default()];
     for g in gds {
-        let sub = walk_goal_definition(g, bindings)?;
+        let sub = walk_goal_description(g, bindings)?;
         results = cartesian_product_dnf(&results, &sub);
     }
 

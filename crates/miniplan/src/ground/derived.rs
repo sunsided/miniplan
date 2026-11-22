@@ -6,7 +6,7 @@
 //! resulting facts are added to it.
 
 use pddl::{AtomicFormula, ConditionalEffect, EffectCondition, Effects, PrimitiveEffect};
-use pddl::{DerivedPredicate, Domain, GoalDefinition, Literal, StructureDef, Term, Typed};
+use pddl::{DerivedPredicate, Domain, GoalDescription, Literal, StructureDef, Term, Typed};
 use rustc_hash::FxHashSet;
 
 use crate::error::MiniplanError;
@@ -23,7 +23,7 @@ pub(crate) struct DerivedRule {
     /// Head parameters as `(variable, type name)` pairs, in declaration order.
     pub params: Vec<(String, String)>,
     /// Rule body; refers only to static predicates.
-    pub body: GoalDefinition,
+    pub body: GoalDescription,
 }
 
 /// All derived rules of a domain, validated by [`collect`].
@@ -165,7 +165,7 @@ fn collect_pred_names_in_effects(effects: Option<&Effects>, names: &mut FxHashSe
         return;
     };
 
-    for ce in effects.iter() {
+    for ce in effects {
         collect_pred_names_in_conditional_effect(ce, names);
     }
 }
@@ -178,7 +178,7 @@ fn collect_pred_names_in_conditional_effect(ce: &ConditionalEffect, names: &mut 
             collect_pred_names_in_primitive_effect(pe, names);
         }
         ConditionalEffect::Forall(forall) => {
-            for nested in forall.effects.iter() {
+            for nested in &forall.effects {
                 collect_pred_names_in_conditional_effect(nested, names);
             }
         }
@@ -208,37 +208,37 @@ fn collect_pred_names_in_primitive_effect(pe: &PrimitiveEffect, names: &mut FxHa
 }
 
 /// Returns the names of all predicates mentioned anywhere in `gd`.
-fn collect_pred_names_in_gd(gd: &GoalDefinition) -> FxHashSet<String> {
+fn collect_pred_names_in_gd(gd: &GoalDescription) -> FxHashSet<String> {
     let mut names = FxHashSet::default();
     collect_pred_names_in_gd_inner(gd, &mut names);
     names
 }
 
 /// Recursive worker of [`collect_pred_names_in_gd`].
-fn collect_pred_names_in_gd_inner(gd: &GoalDefinition, names: &mut FxHashSet<String>) {
+fn collect_pred_names_in_gd_inner(gd: &GoalDescription, names: &mut FxHashSet<String>) {
     match gd {
-        GoalDefinition::AtomicFormula(af)
-        | GoalDefinition::Literal(Literal::AtomicFormula(af) | Literal::NotAtomicFormula(af)) => {
+        GoalDescription::AtomicFormula(af)
+        | GoalDescription::Literal(Literal::AtomicFormula(af) | Literal::NotAtomicFormula(af)) => {
             if let AtomicFormula::Predicate(pred) = af {
                 names.insert(pred.predicate().to_string());
             }
         }
-        GoalDefinition::And(gds) | GoalDefinition::Or(gds) => {
+        GoalDescription::And(gds) | GoalDescription::Or(gds) => {
             for g in gds {
                 collect_pred_names_in_gd_inner(g, names);
             }
         }
-        GoalDefinition::Not(inner) => {
+        GoalDescription::Not(inner) => {
             collect_pred_names_in_gd_inner(inner, names);
         }
-        GoalDefinition::Imply(a, b) => {
+        GoalDescription::Imply(a, b) => {
             collect_pred_names_in_gd_inner(a, names);
             collect_pred_names_in_gd_inner(b, names);
         }
-        GoalDefinition::Exists(_, body) | GoalDefinition::ForAll(_, body) => {
+        GoalDescription::Exists(_, body) | GoalDescription::ForAll(_, body) => {
             collect_pred_names_in_gd_inner(body, names);
         }
-        GoalDefinition::FluentComparison(_) => {}
+        GoalDescription::FluentComparison(_) => {}
     }
 }
 
@@ -297,25 +297,25 @@ fn add_derived_fact(task: &mut Task, fact: Fact) {
 
 /// Evaluates a goal definition under `bindings` against a fixed fact set.
 ///
-/// Unlike [`walk_goal_definition`](crate::ground::formula::walk_goal_definition),
+/// Unlike [`walk_goal_description`](crate::ground::formula::walk_goal_description),
 /// quantifiers are expanded over the typed `objects`, and `imply` is supported.
 ///
 /// # Errors
 ///
 /// Returns [`MiniplanError::Ground`] when `gd` contains a numeric comparison.
 pub(crate) fn eval_gd(
-    gd: &GoalDefinition,
+    gd: &GoalDescription,
     bindings: &[Binding],
     facts: &FxHashSet<Fact>,
     objects: &[Object],
     types: &TypeHierarchy,
 ) -> Result<bool, MiniplanError> {
-    let eval = |g: &GoalDefinition| eval_gd(g, bindings, facts, objects, types);
+    let eval = |g: &GoalDescription| eval_gd(g, bindings, facts, objects, types);
 
     match gd {
-        GoalDefinition::AtomicFormula(af) => Ok(eval_atomic_formula(af, bindings, facts)),
-        GoalDefinition::Literal(lit) => Ok(eval_literal(lit, bindings, facts)),
-        GoalDefinition::And(gds) => {
+        GoalDescription::AtomicFormula(af) => Ok(eval_atomic_formula(af, bindings, facts)),
+        GoalDescription::Literal(lit) => Ok(eval_literal(lit, bindings, facts)),
+        GoalDescription::And(gds) => {
             for g in gds {
                 if !eval(g)? {
                     return Ok(false);
@@ -324,7 +324,7 @@ pub(crate) fn eval_gd(
 
             Ok(true)
         }
-        GoalDefinition::Or(gds) => {
+        GoalDescription::Or(gds) => {
             for g in gds {
                 if eval(g)? {
                     return Ok(true);
@@ -333,15 +333,15 @@ pub(crate) fn eval_gd(
 
             Ok(false)
         }
-        GoalDefinition::Not(inner) => Ok(!eval(inner)?),
-        GoalDefinition::Imply(a, b) => {
+        GoalDescription::Not(inner) => Ok(!eval(inner)?),
+        GoalDescription::Imply(a, b) => {
             if !eval(a)? {
                 return Ok(true);
             }
 
             eval(b)
         }
-        GoalDefinition::Exists(vars, body) => eval_quantified(
+        GoalDescription::Exists(vars, body) => eval_quantified(
             Quantifier::Exists,
             vars,
             body,
@@ -350,7 +350,7 @@ pub(crate) fn eval_gd(
             objects,
             types,
         ),
-        GoalDefinition::ForAll(vars, body) => eval_quantified(
+        GoalDescription::ForAll(vars, body) => eval_quantified(
             Quantifier::ForAll,
             vars,
             body,
@@ -359,7 +359,7 @@ pub(crate) fn eval_gd(
             objects,
             types,
         ),
-        GoalDefinition::FluentComparison(_) => Err(MiniplanError::Ground(
+        GoalDescription::FluentComparison(_) => Err(MiniplanError::Ground(
             "numeric comparisons in derived predicate bodies are not supported".into(),
         )),
     }
@@ -387,7 +387,7 @@ enum Quantifier {
 fn eval_quantified(
     quantifier: Quantifier,
     vars: &[Typed<pddl::Variable>],
-    body: &GoalDefinition,
+    body: &GoalDescription,
     bindings: &[Binding],
     facts: &FxHashSet<Fact>,
     objects: &[Object],
@@ -479,14 +479,12 @@ mod tests {
 
     /// Parses a domain, panicking on invalid input.
     fn parse_domain(src: &str) -> Domain {
-        let (_, domain) = Domain::parse_span(src.into()).expect("domain should parse");
-        domain
+        Domain::from_str(src).expect("domain should parse")
     }
 
     /// Parses a problem, panicking on invalid input.
     fn parse_problem(src: &str) -> Problem {
-        let (_, problem) = Problem::parse_span(src.into()).expect("problem should parse");
-        problem
+        Problem::from_str(src).expect("problem should parse")
     }
 
     /// Parses and grounds a domain/problem pair, panicking on any error.

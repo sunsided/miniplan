@@ -13,7 +13,7 @@ pub(super) fn extract_action_cost(action: &ActionDefinition) -> u32 {
         return 1;
     };
 
-    for ceffect in effects.iter() {
+    for ceffect in effects {
         if let ConditionalEffect::Effect(PrimitiveEffect::AssignNumericFluent(op, head, exp)) =
             ceffect
             && is_total_cost_increase(op, head)
@@ -46,7 +46,7 @@ fn is_total_cost_increase(op: &AssignOp, head: &FunctionHead) -> bool {
 fn extract_numeric_value(exp: &FluentExpression) -> Option<u32> {
     match exp {
         FluentExpression::Number(n) => {
-            let val: f32 = **n;
+            let val: f64 = **n;
             #[expect(
                 clippy::cast_possible_truncation,
                 clippy::cast_sign_loss,

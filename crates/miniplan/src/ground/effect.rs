@@ -7,7 +7,7 @@ use pddl::{
 
 use crate::error::MiniplanError;
 use crate::ground::formula::{
-    LiteralSet, build_state_from_literals, ground_atom, walk_goal_definition,
+    LiteralSet, build_state_from_literals, ground_atom, walk_goal_description,
 };
 use crate::ground::types::Binding;
 use crate::task::{CondEffect, Fact, State, Task};
@@ -27,7 +27,7 @@ type GroundEffects = (State, State, Vec<CondEffect>);
 /// # Errors
 ///
 /// Returns [`MiniplanError::Ground`] when a `when` condition is rejected by
-/// [`walk_goal_definition`] (negated non-atom, `imply`, numeric comparison).
+/// [`walk_goal_description`] (negated non-atom, `imply`, numeric comparison).
 pub(super) fn extract_effects(
     effects: Option<&Effects>,
     bindings: &[Binding],
@@ -41,13 +41,13 @@ pub(super) fn extract_effects(
         return Ok((add_state, del_state, conditional));
     };
 
-    for ceffect in effects.iter() {
+    for ceffect in effects {
         match ceffect {
             ConditionalEffect::Effect(pe) => {
                 apply_plain_effect(pe, bindings, task, &mut add_state, &mut del_state);
             }
             ConditionalEffect::Forall(forall) => {
-                for ce in forall.effects.iter() {
+                for ce in &forall.effects {
                     if let ConditionalEffect::Effect(pe) = ce {
                         apply_plain_effect(pe, bindings, task, &mut add_state, &mut del_state);
                     }
@@ -69,14 +69,14 @@ pub(super) fn extract_effects(
 ///
 /// # Errors
 ///
-/// Returns [`MiniplanError::Ground`] when [`walk_goal_definition`] rejects the
+/// Returns [`MiniplanError::Ground`] when [`walk_goal_description`] rejects the
 /// condition.
 fn ground_when_effect(
     when: &WhenConditionalEffect,
     bindings: &[Binding],
     task: &Task,
 ) -> Result<CondEffect, MiniplanError> {
-    let cond_literals = walk_goal_definition(&when.condition, bindings)?;
+    let cond_literals = walk_goal_description(&when.condition, bindings)?;
     let (cond_pos, cond_neg) = if cond_literals.is_empty() {
         (State::new(task.num_facts()), State::new(task.num_facts()))
     } else {
