@@ -3,7 +3,7 @@ resolver = "2"
 members = ["bins/miniplan-cli", "crates/miniplan"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.88"
 license = "EUPL-1.2"
@@ -20,7 +20,7 @@ bitflags = "2"
 clap = { version = "4", features = ["derive"] }
 fixedbitset = "0.5"
 indexmap = "2"
-miniplan = { version = "0.2.0", path = "crates/miniplan" }
+miniplan = { version = "0.3.0", path = "crates/miniplan" }
 pddl = "0.5"
 pretty_assertions = "1"
 proptest = "1.12"
