@@ -1,6 +1,6 @@
 [package]
 name = "miniplan-cli"
-description = "CLI for the miniplan PDDL planner"
+description = "Command-line PDDL planner that grounds and solves PDDL tasks with miniplan's breadth-first, A*, greedy best-first and bidirectional searches"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 keywords.workspace = true
-categories = ["science", "command-line-utilities"]
+categories = ["command-line-utilities", "artificial-intelligence", "science"]
 readme = "../../README.md"
 
 [[bin]]
