@@ -29,5 +29,8 @@ summary: Keep task ci, ci.yml and hooks in sync; pinned, least-privilege workflo
   `/fuzz`.
 - `scripts/check-branch.sh` is the single definition of allowed branch names, used by the
   Taskfile, the pre-push hook and the CI `branch` job.
+- `zizmor-sarif` (`zizmor (code scanning)`) in `actions-lint.yml` runs only on pushes to
+  `main` and uploads zizmor's findings as SARIF to the Security tab without failing. The
+  blocking `zizmor` job stays the merge gate; `zizmor-sarif` is not a required check.
 - New jobs that should gate merges must also be added to the ruleset's required checks.
   Mention that in the PR.
