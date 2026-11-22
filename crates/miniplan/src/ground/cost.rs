@@ -13,7 +13,7 @@ pub(super) fn extract_action_cost(action: &ActionDefinition) -> u32 {
         return 1;
     };
 
-    for ceffect in effects.iter() {
+    for ceffect in effects {
         if let ConditionalEffect::Effect(PrimitiveEffect::AssignNumericFluent(op, head, exp)) =
             ceffect
             && is_total_cost_increase(op, head)
@@ -27,14 +27,16 @@ pub(super) fn extract_action_cost(action: &ActionDefinition) -> u32 {
 }
 
 /// Whether the assignment `op head` is an `increase` of the `total-cost`
-/// function (with or without arguments).
+/// function (with or without arguments), spelled in any case as PDDL allows.
 fn is_total_cost_increase(op: &AssignOp, head: &FunctionHead) -> bool {
     if !matches!(op, AssignOp::Increase) {
         return false;
     }
 
     match head {
-        FunctionHead::Simple(fs) | FunctionHead::WithTerms(fs, _) => fs.to_string() == "total-cost",
+        FunctionHead::Simple(fs) | FunctionHead::WithTerms(fs, _) => {
+            fs.eq_ignore_ascii_case("total-cost")
+        }
     }
 }
 
@@ -46,7 +48,7 @@ fn is_total_cost_increase(op: &AssignOp, head: &FunctionHead) -> bool {
 fn extract_numeric_value(exp: &FluentExpression) -> Option<u32> {
     match exp {
         FluentExpression::Number(n) => {
-            let val: f32 = **n;
+            let val: f64 = **n;
             #[expect(
                 clippy::cast_possible_truncation,
                 clippy::cast_sign_loss,
@@ -57,5 +59,36 @@ fn extract_numeric_value(exp: &FluentExpression) -> Option<u32> {
             Some(cost)
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pddl::{Domain, Parser, StructureDef};
+
+    /// The cost of the only action of `domain`.
+    fn single_action_cost(domain: &str) -> u32 {
+        let domain = Domain::from_str(domain).expect("domain should parse");
+        let action = domain
+            .structure()
+            .iter()
+            .find_map(|def| match def {
+                StructureDef::Action(action) => Some(action),
+                _ => None,
+            })
+            .expect("domain should have an action");
+
+        extract_action_cost(action)
+    }
+
+    /// An upper-case `TOTAL-COST`, which parses since pddl 0.3, is the action cost.
+    #[test]
+    fn total_cost_matches_in_any_case() {
+        let domain = "(DEFINE (DOMAIN d) (:REQUIREMENTS :STRIPS :ACTION-COSTS)
+            (:PREDICATES (DONE)) (:FUNCTIONS (TOTAL-COST))
+            (:ACTION GO :PARAMETERS () :EFFECT (AND (DONE) (INCREASE (TOTAL-COST) 5))))";
+
+        assert_eq!(single_action_cost(domain), 5);
     }
 }

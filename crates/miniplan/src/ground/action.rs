@@ -1,7 +1,7 @@
 //! The grounding entry point: fact universe, initial state, goal and operators.
 
-use pddl::{ActionDefinition, Domain, GoalDefinition, Problem, StructureDef};
-use pddl::{InitElement, PreconditionGoalDefinition};
+use pddl::{ActionDefinition, Domain, GoalDescription, Problem, StructureDef};
+use pddl::{InitElement, PreconditionGoalDescription};
 use rustc_hash::FxHashMap;
 
 use crate::error::MiniplanError;
@@ -9,7 +9,7 @@ use crate::ground::cost::extract_action_cost;
 use crate::ground::derived;
 use crate::ground::derived::collect as collect_derived;
 use crate::ground::effect::extract_effects;
-use crate::ground::formula::{build_state_from_literals, walk_goal_definition};
+use crate::ground::formula::{build_state_from_literals, walk_goal_description};
 use crate::ground::types::{
     Binding, advance_odometer, extract_objects, extract_types, generate_bindings, type_to_string,
 };
@@ -31,7 +31,12 @@ use crate::task::{Fact, FactId, Object, OpId, Operator, State, Task, TaskMeta};
 /// - the goal is unsatisfiable (its disjunctive normal form is empty);
 /// - the goal or an action precondition or `when` condition uses a negated
 ///   non-atomic formula, `imply`, or a numeric comparison.
+///
+/// Returns [`MiniplanError::Unsupported`] when the domain has a PDDL+
+/// `:process` or `:event`.
 pub fn ground(domain: &Domain, problem: &Problem) -> Result<Task, MiniplanError> {
+    reject_pddl_plus(domain)?;
+
     let types = extract_types(domain);
     let objects = extract_objects(domain, problem);
 
@@ -65,6 +70,28 @@ pub fn ground(domain: &Domain, problem: &Problem) -> Result<Task, MiniplanError>
     ground_actions(&mut task, domain)?;
 
     Ok(task)
+}
+
+/// Fails on the first PDDL+ process or event of the domain.
+///
+/// Both change the state on their own, so grounding only the actions would
+/// plan as if they did not exist.
+///
+/// # Errors
+///
+/// Returns [`MiniplanError::Unsupported`] naming the process or event.
+fn reject_pddl_plus(domain: &Domain) -> Result<(), MiniplanError> {
+    for def in domain.structure().iter() {
+        let unsupported = match def {
+            StructureDef::Process(process) => format!("PDDL+ process `{}`", **process.symbol()),
+            StructureDef::Event(event) => format!("PDDL+ event `{}`", **event.symbol()),
+            _ => continue,
+        };
+
+        return Err(MiniplanError::Unsupported(unsupported));
+    }
+
+    Ok(())
 }
 
 /// Enumerates every fact that can exist: each domain predicate and each
@@ -179,10 +206,10 @@ fn build_init_state(task: &mut Task, problem: &Problem) {
 /// # Errors
 ///
 /// Returns [`MiniplanError::Ground`] when the goal is unsatisfiable, or when
-/// [`walk_goal_definition`] rejects it (negated non-atom, `imply`, numeric
+/// [`walk_goal_description`] rejects it (negated non-atom, `imply`, numeric
 /// comparison).
 fn build_goal_state(task: &mut Task, problem: &Problem) -> Result<(), MiniplanError> {
-    let goal_gds: Vec<GoalDefinition> = problem
+    let goal_gds: Vec<GoalDescription> = problem
         .goals()
         .iter()
         .filter_map(precondition_to_goal)
@@ -191,10 +218,10 @@ fn build_goal_state(task: &mut Task, problem: &Problem) -> Result<(), MiniplanEr
     let combined = match goal_gds.len() {
         0 => return Ok(()),
         1 => goal_gds[0].clone(),
-        _ => GoalDefinition::new_and(goal_gds),
+        _ => GoalDescription::new_and(goal_gds),
     };
 
-    let dnf = walk_goal_definition(&combined, &[])?;
+    let dnf = walk_goal_description(&combined, &[])?;
     let Some(first) = dnf.first() else {
         return Err(MiniplanError::Ground(
             "goal is unsatisfiable (False)".into(),
@@ -212,13 +239,13 @@ fn build_goal_state(task: &mut Task, problem: &Problem) -> Result<(), MiniplanEr
 ///
 /// Returns `None` for named preferences and `forall` preconditions, which the
 /// grounder does not support and silently drops.
-fn precondition_to_goal(pgd: &PreconditionGoalDefinition) -> Option<GoalDefinition> {
+fn precondition_to_goal(pgd: &PreconditionGoalDescription) -> Option<GoalDescription> {
     match pgd {
-        PreconditionGoalDefinition::Preference(pddl::PreferenceGoalDefinition::Goal(gd)) => {
+        PreconditionGoalDescription::Preference(pddl::PreferenceGoalDescription::Goal(gd)) => {
             Some(gd.clone())
         }
-        PreconditionGoalDefinition::Preference(pddl::PreferenceGoalDefinition::Preference(_))
-        | PreconditionGoalDefinition::Forall(_, _) => None,
+        PreconditionGoalDescription::Preference(pddl::PreferenceGoalDescription::Preference(_))
+        | PreconditionGoalDescription::Forall(_, _) => None,
     }
 }
 
@@ -247,7 +274,7 @@ fn ground_actions(task: &mut Task, domain: &Domain) -> Result<(), MiniplanError>
 ///
 /// # Errors
 ///
-/// Returns [`MiniplanError::Ground`] when [`walk_goal_definition`] rejects the
+/// Returns [`MiniplanError::Ground`] when [`walk_goal_description`] rejects the
 /// precondition or a `when` condition (negated non-atom, `imply`, numeric
 /// comparison).
 fn ground_action(task: &mut Task, action: &ActionDefinition) -> Result<(), MiniplanError> {
@@ -266,7 +293,7 @@ fn ground_action(task: &mut Task, action: &ActionDefinition) -> Result<(), Minip
 
     let bindings_list = generate_bindings(&params, &task.objects, &task.types);
     for bindings in &bindings_list {
-        let dnf = walk_goal_definition(&precondition, bindings)?;
+        let dnf = walk_goal_description(&precondition, bindings)?;
         for literals in &dnf {
             let (pre_pos, pre_neg) = build_state_from_literals(literals, task);
             let (add, del, conditional) =
@@ -294,20 +321,20 @@ fn ground_action(task: &mut Task, action: &ActionDefinition) -> Result<(), Minip
 /// Several entries become a conjunction. An action without a usable
 /// precondition gets the placeholder atom `(dummy)`; it names no fact in the
 /// universe, so it adds no precondition bit.
-fn combined_precondition(action: &ActionDefinition) -> GoalDefinition {
-    let mut pre_gds: Vec<GoalDefinition> = action
+fn combined_precondition(action: &ActionDefinition) -> GoalDescription {
+    let mut pre_gds: Vec<GoalDescription> = action
         .precondition()
         .iter()
         .filter_map(precondition_to_goal)
         .collect();
 
     match pre_gds.len() {
-        0 => GoalDefinition::AtomicFormula(pddl::AtomicFormula::new_predicate(
+        0 => GoalDescription::AtomicFormula(pddl::AtomicFormula::new_predicate(
             pddl::Predicate::from_static("dummy"),
             vec![],
         )),
         1 => pre_gds.remove(0),
-        _ => GoalDefinition::new_and(pre_gds),
+        _ => GoalDescription::new_and(pre_gds),
     }
 }
 
