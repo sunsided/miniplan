@@ -8,9 +8,9 @@ use std::path::PathBuf;
 
 use criterion::Criterion;
 use miniplan::ground::ground;
-use miniplan::heuristic::{HFF, HMax};
+use miniplan::heuristic::{HFF, HMax, HZero};
 use miniplan::pddl_io::load_files_named;
-use miniplan::search::{Astar, Bfs, BiDij, Gbfs, Planner, SearchLimits, SearchOutcome};
+use miniplan::search::{Astar, Bae, Bfs, BiDij, Gbfs, Nbs, Planner, SearchLimits, SearchOutcome};
 use miniplan::task::Task;
 
 /// Runs every benchmark in this file with criterion's command-line flags.
@@ -35,6 +35,12 @@ fn bench_gripper(criterion: &mut Criterion) {
         Astar::new(Box::new(HMax))
     });
     bench_planner(criterion, "gripper/bidij", &task, BiDij::new);
+    bench_planner(criterion, "gripper/nbs-hmax", &task, || {
+        Nbs::new(Box::new(HMax))
+    });
+    bench_planner(criterion, "gripper/bae-hmax", &task, || {
+        Bae::new(Box::new(HMax))
+    });
 }
 
 /// Blocksworld-4: A* with hFF on a deeper search space.
@@ -46,12 +52,20 @@ fn bench_blocksworld(criterion: &mut Criterion) {
     });
 }
 
-/// Air Cargo P3: greedy best-first search on the largest example.
+/// Air Cargo P3: greedy best-first search and the bidirectional searches on the largest
+/// example.
 fn bench_air_cargo(criterion: &mut Criterion) {
     let task = load_example("air-cargo.pddl", Some("air-cargo-p3"));
 
     bench_planner(criterion, "air-cargo-p3/gbfs-hff", &task, || {
         Gbfs::new(Box::new(HFF))
+    });
+    bench_planner(criterion, "air-cargo-p3/bidij", &task, BiDij::new);
+    bench_planner(criterion, "air-cargo-p3/nbs-zero", &task, || {
+        Nbs::new(Box::new(HZero))
+    });
+    bench_planner(criterion, "air-cargo-p3/bae-zero", &task, || {
+        Bae::new(Box::new(HZero))
     });
 }
 
