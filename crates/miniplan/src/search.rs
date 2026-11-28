@@ -388,13 +388,10 @@ impl Registry {
 
     /// Registers the built-in heuristics under their command-line names.
     fn register_builtin_heuristics(&mut self) {
-        for name in BUILTIN_HEURISTICS {
+        for (name, make) in BUILTIN_HEURISTICS {
             self.register_heuristic(RegisteredHeuristic {
                 name,
-                factory: std::sync::Arc::new(move |_cfg| {
-                    builtin_heuristic(name)
-                        .ok_or_else(|| MiniplanError::InvalidHeuristic(name.to_owned()))
-                }),
+                factory: std::sync::Arc::new(move |_cfg| Ok(make())),
             });
         }
     }
@@ -458,21 +455,21 @@ impl Registry {
     }
 }
 
-/// Command-line names of the built-in heuristics, as accepted by [`builtin_heuristic`].
-const BUILTIN_HEURISTICS: [&str; 6] = ["blind", "goal-count", "hadd", "hmax", "hff", "zero"];
+/// Builds one built-in heuristic.
+type MakeHeuristic = fn() -> Box<dyn Heuristic>;
 
-/// The built-in heuristic called `name`, or `None` if there is none.
-fn builtin_heuristic(name: &str) -> Option<Box<dyn Heuristic>> {
-    Some(match name {
-        "blind" => Box::new(BlindHeuristic),
-        "goal-count" => Box::new(GoalCountHeuristic),
-        "hadd" => Box::new(HAdd),
-        "hmax" => Box::new(HMax),
-        "hff" => Box::new(HFF),
-        "zero" => Box::new(HZero),
-        _ => return None,
-    })
-}
+/// The built-in heuristics by command-line name, with a constructor for each.
+///
+/// The registry registers exactly these, and the built-in heuristic planners accept exactly
+/// these names (see [`heuristic_option`]).
+const BUILTIN_HEURISTICS: [(&str, MakeHeuristic); 6] = [
+    ("blind", || Box::new(BlindHeuristic)),
+    ("goal-count", || Box::new(GoalCountHeuristic)),
+    ("hadd", || Box::new(HAdd)),
+    ("hmax", || Box::new(HMax)),
+    ("hff", || Box::new(HFF)),
+    ("zero", || Box::new(HZero)),
+];
 
 /// The forward heuristic named by the `heuristic` option of `cfg`, used by the built-in
 /// heuristic planners (`astar`, `gbfs`, `nbs`, `bae`).
@@ -485,9 +482,11 @@ fn builtin_heuristic(name: &str) -> Option<Box<dyn Heuristic>> {
 fn heuristic_option(cfg: &PlannerConfig) -> Result<Box<dyn Heuristic>, MiniplanError> {
     match cfg.opts.get("heuristic") {
         None => Ok(Box::new(HFF)),
-        Some(name) => {
-            builtin_heuristic(name).ok_or_else(|| MiniplanError::InvalidHeuristic(name.clone()))
-        }
+        Some(name) => BUILTIN_HEURISTICS
+            .iter()
+            .find(|(builtin, _)| builtin == name)
+            .map(|(_, make)| make())
+            .ok_or_else(|| MiniplanError::InvalidHeuristic(name.clone())),
     }
 }
 
