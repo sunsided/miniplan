@@ -17,8 +17,8 @@
 //!
 //! # Modules
 //!
-//! - [`search`] — search algorithms (BFS, A*, GBFS, bidirectional variants)
-//!   and the planner registry.
+//! - [`search`] — search algorithms (BFS, A*, GBFS, bidirectional variants,
+//!   partial-order planning) and the planner registry.
 //! - [`heuristic`] — heuristic functions (h^add, h^max, h^FF, etc.).
 //! - [`ground`] — grounding functions that convert PDDL to a state-space representation.
 //! - [`task`] — grounded task representation (facts, operators, states).

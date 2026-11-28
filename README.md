@@ -13,7 +13,7 @@ A PDDL planner library built around the [`pddl`](https://github.com/sunsided/pdd
 [![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance/)
 <!-- [![GitHub Stars](https://img.shields.io/github/stars/sunsided/miniplan?style=social)](https://github.com/sunsided/miniplan) -->
 
-**miniplan** is a grounded, classical PDDL planner that you can use as a Rust library or as the `miniplan` command-line tool. It reads PDDL with the [`pddl`](https://github.com/sunsided/pddl-rs) crate, grounds the task into a compact bitset representation and searches it with breadth-first search, A*, greedy best-first search or one of four bidirectional searches (bidirectional Dijkstra and BFS, NBS and BAE*), guided by h^FF, h^add, h^max or the goal count. It handles STRIPS with typing, negative preconditions, conditional effects, disjunctive preconditions and derived predicates, and writes plans as plain text, in IPC format or as JSON. The CLI also has an interactive terminal UI for trying planners on a problem.
+**miniplan** is a grounded, classical PDDL planner that you can use as a Rust library or as the `miniplan` command-line tool. It reads PDDL with the [`pddl`](https://github.com/sunsided/pddl-rs) crate, grounds the task into a compact bitset representation and searches it with breadth-first search, A*, greedy best-first search or one of four bidirectional searches (bidirectional Dijkstra and BFS, NBS and BAE*), or in plan space with a partial-order causal-link planner, guided by h^FF, h^add, h^max or the goal count. It handles STRIPS with typing, negative preconditions, conditional effects, disjunctive preconditions and derived predicates, and writes plans as plain text, in IPC format or as JSON. The CLI also has an interactive terminal UI for trying planners on a problem.
 
 ## Who this is for
 
@@ -36,6 +36,7 @@ Part of the [planning and search crates](https://sunsided.github.io/planning-and
   - `bibfs-uc` — bidirectional BFS (uniform-cost, optimal)
   - `nbs` — Near-Optimal Bidirectional Search (heuristic-guided, non-optimal with HFF)
   - `bae` — Bidirectional A* with Error / BAE* (heuristic-guided, non-optimal with HFF)
+  - `pop` — partial-order causal-link planner (plan-space search, non-optimal); reports the ordering constraints the plan needs, not only a sequence. Rejects conditional effects
 - **Bidirectional heuristic search**: `bidij`, `bibfs-uc`, `nbs` (NBS), `bae` (BAE*)
 - **Heuristics**: `hff` (relaxed-plan), `hadd`, `hmax`, `goal-count`, `blind`
 - **Output formats**: plain, IPC, JSON
@@ -118,6 +119,7 @@ Available planners:
   bidij        Bidirectional Dijkstra (cost-aware)
   nbs        Near-Optimal Bidirectional Search (Chen et al. 2017)
   bae        Bidirectional A* with Error (BAE*, Sadhukhan 2013)
+  pop        Partial-order causal-link planner (plan-space search)
 
 Available heuristics:
   goal-count
@@ -142,12 +144,12 @@ Available heuristics:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-p, --planner` | `astar` | Planner to use (`bfs`, `astar`, `gbfs`, `bidij`, `bibfs-uc`, `nbs`, `bae`) |
-| `-H, --heuristic` | `hff` (h^FF) | Heuristic (`hff`, `hadd`, `hmax`, `goal-count`, `blind`, `zero`); unknown names are rejected |
+| `-p, --planner` | `astar` | Planner to use (`bfs`, `astar`, `gbfs`, `bidij`, `bibfs-uc`, `nbs`, `bae`, `pop`) |
+| `-H, --heuristic` | `hff` (h^FF) | Heuristic (`hff`, `hadd`, `hmax`, `goal-count`, `blind`, `zero`); unknown names are rejected. `pop` ranks open conditions instead: `hff` and `hadd` use h^add, `blind` and `zero` cost nothing |
 | `-t, --timeout` | — | Time budget (e.g. `30s`, `2m`) |
 | `--max-nodes` | — | Maximum nodes to expand |
 | `-o, --output` | `-` | Output file (`-` for stdout) |
-| `--format` | `plain` | Output format (`plain`, `ipc`, `json`) |
+| `--format` | `plain` | Output format (`plain`, `ipc`, `json`); `pop` plans add `; order i < j` lines or a JSON `orderings` list |
 | `--stats` | — | Print search statistics to stderr |
 | `--domain` | — | Domain name (when input contains multiple) |
 | `--problem` | — | Problem name (when input contains multiple) |
@@ -269,7 +271,7 @@ crates/miniplan/         Core library
     heuristic/           Heuristic implementations (h^FF, h^add, h^max, …)
     pddl_io.rs           PDDL file loading
     plan.rs              Plan representation and formatting
-    search/              Planner implementations (BFS, A*, GBFS, bidirectional searches)
+    search/              Planner implementations (BFS, A*, GBFS, bidirectional searches, POP)
     task.rs              Grounded task representation
     util/                Utilities (bitsets, etc.)
 bins/miniplan-cli/       CLI binary (produces `miniplan`)

@@ -294,6 +294,16 @@ fn build_rpg(task: &Task, state: &State, aggregate: Aggregate) -> RpgResult {
     builder.finish()
 }
 
+/// Forward h^add costs of all facts from `state`, indexed by fact id.
+///
+/// `0.0` marks facts of `state`, `f64::INFINITY` facts the relaxation cannot
+/// reach. Summing these costs over a set of facts gives the inadmissible but
+/// informative h^add estimate, which [`Pop`](crate::search::Pop) uses to rank
+/// partial plans by their open conditions.
+pub(crate) fn rpg_add_fact_costs(task: &Task, state: &State) -> Vec<f64> {
+    build_rpg(task, state, Aggregate::Sum).fact_cost
+}
+
 /// Forward h^max costs of all facts from `state`, indexed by fact id.
 ///
 /// `0.0` marks facts of `state`, `f64::INFINITY` facts the relaxation cannot

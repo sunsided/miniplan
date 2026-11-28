@@ -1,6 +1,6 @@
 ---
 title: Planners and heuristics
-applyTo: "crates/miniplan/src/search.rs,crates/miniplan/src/search/**,crates/miniplan/src/heuristic.rs,crates/miniplan/src/heuristic/**,crates/miniplan/tests/it/plan_validity.rs,crates/miniplan/benches/**"
+applyTo: "crates/miniplan/src/search.rs,crates/miniplan/src/search/**,crates/miniplan/src/heuristic.rs,crates/miniplan/src/heuristic/**,crates/miniplan/tests/it/plan_validity.rs,crates/miniplan/tests/it/pop.rs,crates/miniplan/benches/**"
 summary: Termination, optimality claims, limits, and the property tests that back them.
 ---
 
@@ -9,9 +9,13 @@ summary: Termination, optimality claims, limits, and the property tests that bac
 - Every planner terminates on finite tasks without limits. It returns `Unsolvable` once its
   search space is exhausted. Bidirectional planners must not rely on the backward
   (regression) frontier running dry, because it can generate subgoals forever.
+  Exception: the plan-space planner `pop` searches an infinite space. It proves
+  unsolvability only when the relaxation shows the goal unreachable, and otherwise runs
+  into a limit. Its tests (`tests/it/pop.rs`) give it a node budget on unsolvable cases.
 - Every returned plan is executable: each step's operator is applicable in sequence from
   `task.init`, and the final state satisfies the goal. `plan_validity.rs` checks this for every
-  planner it lists. A new planner is added there.
+  planner it lists. A new planner is added there (`pop` lives in `tests/it/pop.rs`, which
+  reuses the same generators and oracles, for the termination exception above).
 - Optimality claims in docs (`describe()`, README, module docs) must hold. A planner marked
   optimal in `plan_validity.rs` must return shortest plans. Optimal planners that take a
   heuristic need an admissible one (`hmax`, `zero`, `blind`). `hff` and `hadd` are not

@@ -12,7 +12,7 @@ use miniplan::search::{
 use miniplan::task::Task;
 
 /// Every built-in planner kind.
-const KINDS: [PlannerKind; 7] = [
+const KINDS: [PlannerKind; 8] = [
     PlannerKind::Bfs,
     PlannerKind::Astar,
     PlannerKind::Gbfs,
@@ -20,6 +20,7 @@ const KINDS: [PlannerKind; 7] = [
     PlannerKind::BiDij,
     PlannerKind::Nbs,
     PlannerKind::Bae,
+    PlannerKind::Pop,
 ];
 
 /// Every valid value of the `heuristic` option.
@@ -151,7 +152,8 @@ fn solver_solves_with_every_planner_and_heuristic_option() {
     }
 }
 
-/// Heuristic planners reject an unknown `heuristic` option instead of falling back.
+/// Heuristic planners, and `pop` with its rankings, reject an unknown `heuristic` option
+/// instead of falling back.
 #[test]
 fn heuristic_planners_reject_unknown_heuristic() {
     let registry = Registry::with_builtins();
@@ -160,7 +162,7 @@ fn heuristic_planners_reject_unknown_heuristic() {
         .opts
         .insert("heuristic".to_owned(), "no-such".to_owned());
 
-    for kind in HEURISTIC_KINDS {
+    for kind in HEURISTIC_KINDS.into_iter().chain([PlannerKind::Pop]) {
         assert!(
             matches!(
                 registry.build_planner(kind.name(), &config),
