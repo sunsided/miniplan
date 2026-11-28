@@ -336,7 +336,7 @@ impl Registry {
                 | PlannerCapabilities::NEGATIVE_PRECONDS
                 | PlannerCapabilities::CONDITIONAL_EFFECTS
                 | PlannerCapabilities::ACTION_COSTS,
-            factory: std::sync::Arc::new(|_cfg| Ok(Box::new(Astar::new(Box::new(HFF))))),
+            factory: std::sync::Arc::new(|cfg| Ok(Box::new(Astar::new(heuristic_option(cfg)?)))),
         });
 
         self.register_planner(RegisteredPlanner {
@@ -345,7 +345,7 @@ impl Registry {
             capabilities: PlannerCapabilities::CLASSICAL
                 | PlannerCapabilities::NEGATIVE_PRECONDS
                 | PlannerCapabilities::CONDITIONAL_EFFECTS,
-            factory: std::sync::Arc::new(|_cfg| Ok(Box::new(Gbfs::new(Box::new(HFF))))),
+            factory: std::sync::Arc::new(|cfg| Ok(Box::new(Gbfs::new(heuristic_option(cfg)?)))),
         });
 
         self.register_bidirectional_planners();
@@ -375,36 +375,27 @@ impl Registry {
             name: "nbs",
             description: "Near-Optimal Bidirectional Search (Chen et al. 2017)",
             capabilities: cost_aware,
-            factory: std::sync::Arc::new(|cfg| Ok(Box::new(Nbs::new(heuristic_option(cfg))))),
+            factory: std::sync::Arc::new(|cfg| Ok(Box::new(Nbs::new(heuristic_option(cfg)?)))),
         });
 
         self.register_planner(RegisteredPlanner {
             name: "bae",
             description: "Bidirectional A* with Error (BAE*, Sadhukhan 2013)",
             capabilities: cost_aware,
-            factory: std::sync::Arc::new(|cfg| Ok(Box::new(Bae::new(heuristic_option(cfg))))),
+            factory: std::sync::Arc::new(|cfg| Ok(Box::new(Bae::new(heuristic_option(cfg)?)))),
         });
     }
 
     /// Registers the built-in heuristics under their command-line names.
     fn register_builtin_heuristics(&mut self) {
-        let builtins: [(&'static str, HeuristicFactory); 6] = [
-            (
-                "blind",
-                std::sync::Arc::new(|_cfg| Ok(Box::new(BlindHeuristic))),
-            ),
-            (
-                "goal-count",
-                std::sync::Arc::new(|_cfg| Ok(Box::new(GoalCountHeuristic))),
-            ),
-            ("hadd", std::sync::Arc::new(|_cfg| Ok(Box::new(HAdd)))),
-            ("hmax", std::sync::Arc::new(|_cfg| Ok(Box::new(HMax)))),
-            ("hff", std::sync::Arc::new(|_cfg| Ok(Box::new(HFF)))),
-            ("zero", std::sync::Arc::new(|_cfg| Ok(Box::new(HZero)))),
-        ];
-
-        for (name, factory) in builtins {
-            self.register_heuristic(RegisteredHeuristic { name, factory });
+        for name in BUILTIN_HEURISTICS {
+            self.register_heuristic(RegisteredHeuristic {
+                name,
+                factory: std::sync::Arc::new(move |_cfg| {
+                    builtin_heuristic(name)
+                        .ok_or_else(|| MiniplanError::InvalidHeuristic(name.to_owned()))
+                }),
+            });
         }
     }
 
@@ -467,18 +458,36 @@ impl Registry {
     }
 }
 
-/// The forward heuristic named by the `heuristic` option of `cfg`, used by the
-/// heuristic-driven bidirectional planners.
+/// Command-line names of the built-in heuristics, as accepted by [`builtin_heuristic`].
+const BUILTIN_HEURISTICS: [&str; 6] = ["blind", "goal-count", "hadd", "hmax", "hff", "zero"];
+
+/// The built-in heuristic called `name`, or `None` if there is none.
+fn builtin_heuristic(name: &str) -> Option<Box<dyn Heuristic>> {
+    Some(match name {
+        "blind" => Box::new(BlindHeuristic),
+        "goal-count" => Box::new(GoalCountHeuristic),
+        "hadd" => Box::new(HAdd),
+        "hmax" => Box::new(HMax),
+        "hff" => Box::new(HFF),
+        "zero" => Box::new(HZero),
+        _ => return None,
+    })
+}
+
+/// The forward heuristic named by the `heuristic` option of `cfg`, used by the built-in
+/// heuristic planners (`astar`, `gbfs`, `nbs`, `bae`).
 ///
-/// Accepts `hadd`, `hmax`, `hff`, `blind` and `zero`. Anything else, or no option at all,
-/// falls back to [`HFF`].
-fn heuristic_option(cfg: &PlannerConfig) -> Box<dyn Heuristic> {
-    match cfg.opts.get("heuristic").map(String::as_str) {
-        Some("hadd") => Box::new(HAdd),
-        Some("hmax") => Box::new(HMax),
-        Some("blind") => Box::new(BlindHeuristic),
-        Some("zero") => Box::new(HZero),
-        _ => Box::new(HFF),
+/// Accepts every name in [`BUILTIN_HEURISTICS`]; without the option it is [`HFF`].
+///
+/// # Errors
+///
+/// Returns [`MiniplanError::InvalidHeuristic`] for any other name.
+fn heuristic_option(cfg: &PlannerConfig) -> Result<Box<dyn Heuristic>, MiniplanError> {
+    match cfg.opts.get("heuristic") {
+        None => Ok(Box::new(HFF)),
+        Some(name) => {
+            builtin_heuristic(name).ok_or_else(|| MiniplanError::InvalidHeuristic(name.clone()))
+        }
     }
 }
 

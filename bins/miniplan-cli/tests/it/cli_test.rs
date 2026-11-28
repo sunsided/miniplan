@@ -329,6 +329,16 @@ fn solve_rejects_unknown_planner() {
     assert!(stderr.contains("astar"), "{stderr}");
 }
 
+/// An unknown heuristic name fails instead of silently falling back to hFF.
+#[test]
+fn solve_rejects_unknown_heuristic() {
+    let output = run(&["solve", &example("gripper-small.pddl"), "-H", "nope"]);
+
+    let stderr = stderr(&output);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr.contains("invalid heuristic name: nope"), "{stderr}");
+}
+
 /// A missing input file fails to load.
 #[test]
 fn solve_reports_unreadable_file() {

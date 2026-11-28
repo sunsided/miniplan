@@ -22,8 +22,19 @@ const KINDS: [PlannerKind; 7] = [
     PlannerKind::Bae,
 ];
 
-/// Values of the `heuristic` option, including one the bidirectional planners do not know.
-const HEURISTIC_OPTIONS: [&str; 6] = ["hadd", "hmax", "hff", "blind", "zero", "no-such"];
+/// Every valid value of the `heuristic` option.
+const HEURISTIC_OPTIONS: [&str; 6] = ["hadd", "hmax", "hff", "blind", "goal-count", "zero"];
+
+/// The planner kinds that take a forward heuristic from the `heuristic` option.
+const HEURISTIC_KINDS: [PlannerKind; 4] = [
+    PlannerKind::Astar,
+    PlannerKind::Gbfs,
+    PlannerKind::Nbs,
+    PlannerKind::Bae,
+];
+
+/// The gripper example: large enough that heuristics change the number of expansions.
+const GRIPPER: &str = include_str!("../../../../examples/pddl/gripper.pddl");
 
 /// A two-step task: walk `a -> b -> c`. Every planner must find the 2-step plan.
 const WALK: &str = "
@@ -120,7 +131,7 @@ fn registry_rejects_unknown_names() {
 }
 
 /// Every planner built through the solver finds the optimal 2-step plan, with every
-/// `heuristic` option (unknown values fall back to hFF).
+/// valid `heuristic` option.
 #[test]
 fn solver_solves_with_every_planner_and_heuristic_option() {
     let solver = Solver::new();
@@ -138,6 +149,59 @@ fn solver_solves_with_every_planner_and_heuristic_option() {
             assert_eq!(plan_len(&solver, &task, &choice), 2, "{kind} with {option}");
         }
     }
+}
+
+/// Heuristic planners reject an unknown `heuristic` option instead of falling back.
+#[test]
+fn heuristic_planners_reject_unknown_heuristic() {
+    let registry = Registry::with_builtins();
+    let mut config = PlannerConfig::default();
+    config
+        .opts
+        .insert("heuristic".to_owned(), "no-such".to_owned());
+
+    for kind in HEURISTIC_KINDS {
+        assert!(
+            matches!(
+                registry.build_planner(kind.name(), &config),
+                Err(MiniplanError::InvalidHeuristic(ref name)) if name == "no-such"
+            ),
+            "{kind}"
+        );
+    }
+}
+
+/// Heuristic planners search with the chosen heuristic: `zero` expands a different number
+/// of nodes than the default hFF on gripper, and A* with the admissible `hmax` finds the
+/// optimal 11-step plan.
+#[test]
+fn heuristic_planners_use_chosen_heuristic() {
+    let (domain, problem) = load_combined_str(GRIPPER).expect("gripper parses");
+    let task = ground(&domain, &problem).expect("gripper grounds");
+    let solver = Solver::new();
+
+    let solve = |kind: PlannerKind, heuristic: &str| {
+        let mut choice = PlannerChoice::new(kind);
+        choice
+            .config
+            .opts
+            .insert("heuristic".to_owned(), heuristic.to_owned());
+        match solver.solve_task(&task, &choice, &SearchLimits::default()) {
+            Ok(SearchOutcome::Plan(_, stats)) => stats,
+            other => panic!("{kind} with {heuristic} found no plan: {other:?}"),
+        }
+    };
+
+    for kind in HEURISTIC_KINDS {
+        assert_ne!(
+            solve(kind, "zero").nodes_expanded,
+            solve(kind, "hff").nodes_expanded,
+            "{kind}"
+        );
+    }
+
+    let astar_hmax = solve(PlannerKind::Astar, "hmax");
+    assert!((astar_hmax.plan_cost - 11.0).abs() < 1e-9, "{astar_hmax:?}");
 }
 
 /// Every built planner has a name, a description and capabilities.

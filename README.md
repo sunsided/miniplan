@@ -143,7 +143,7 @@ Available heuristics:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-p, --planner` | `astar` | Planner to use (`bfs`, `astar`, `gbfs`, `bidij`, `bibfs-uc`, `nbs`, `bae`) |
-| `-H, --heuristic` | `ff` (h^FF) | Heuristic (`hff`, `hadd`, `hmax`, `goal-count`, `blind`) |
+| `-H, --heuristic` | `hff` (h^FF) | Heuristic (`hff`, `hadd`, `hmax`, `goal-count`, `blind`, `zero`); unknown names are rejected |
 | `-t, --timeout` | — | Time budget (e.g. `30s`, `2m`) |
 | `--max-nodes` | — | Maximum nodes to expand |
 | `-o, --output` | `-` | Output file (`-` for stdout) |

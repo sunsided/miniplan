@@ -90,7 +90,7 @@ struct SolveArgs {
     planner: String,
 
     /// Heuristic to use (ignored for blind planners)
-    #[arg(short = 'H', long, default_value = "ff")]
+    #[arg(short = 'H', long, default_value = "hff")]
     heuristic: String,
 
     /// Timeout duration (e.g. "30s", "2m")
