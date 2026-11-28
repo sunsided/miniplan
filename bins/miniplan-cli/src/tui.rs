@@ -29,7 +29,7 @@ mod solver;
 mod test_support;
 mod view;
 
-use app::{App, SolvingState};
+use app::{App, AppFocus, SolvingState};
 use events::AppEvent;
 
 /// How long one poll waits for input before the loop ticks and redraws anyway.
@@ -92,8 +92,8 @@ fn handle_event(app: &mut App, event: AppEvent) -> ControlFlow<()> {
         AppEvent::Quit => return ControlFlow::Break(()),
         AppEvent::Mouse(mouse) => handle_mouse(app, mouse),
         AppEvent::Escape if app.solving_state == SolvingState::Running => cancel_solving(app),
-        AppEvent::Char('r') if app.modal.is_none() => app.reset_to_start(),
-        AppEvent::Char('w') if app.modal.is_none() => write_solved_plan(app),
+        AppEvent::Char('r') if is_shortcut_free(app) => app.reset_to_start(),
+        AppEvent::Char('w') if is_shortcut_free(app) => write_solved_plan(app),
         _ => {
             app.on_key(event);
             if app
@@ -107,6 +107,18 @@ fn handle_event(app: &mut App, event: AppEvent) -> ControlFlow<()> {
     }
 
     ControlFlow::Continue(())
+}
+
+/// Whether letter shortcuts apply: no modal is open and the focused text field, if any, is
+/// not being edited.
+///
+/// Tab and clicks move the focus without leaving edit mode, so edit mode only counts while
+/// its field still has the focus.
+fn is_shortcut_free(app: &App) -> bool {
+    app.modal.is_none()
+        && !app
+            .editing_input
+            .is_some_and(|field| app.focus == AppFocus::InputField(field))
 }
 
 /// Forwards clicks and wheel scrolling to [`App::on_mouse`]; other mouse events are dropped.
@@ -149,7 +161,7 @@ mod tests {
 
     use super::*;
     use crate::plan_writer::OutputFormat;
-    use crate::tui::app::{AppFocus, ModalKind};
+    use crate::tui::app::{InputField, ModalKind};
     use crate::tui::test_support::{draw, gripper_app, temp_path, wait_for_solve};
 
     /// A mouse event of `kind` at `column`, `row` without modifiers.
@@ -211,6 +223,44 @@ mod tests {
         assert!(handle_event(&mut app, AppEvent::Char('r')).is_continue());
         assert_eq!(app.focus, AppFocus::CommandBar);
         assert_eq!(app.modal, Some(ModalKind::Heuristic));
+    }
+
+    /// While a text field is edited, `r` and `w` are typed into it instead of acting as shortcuts.
+    #[test]
+    fn r_and_w_are_text_while_editing() {
+        let mut app = solved_app();
+        app.focus = AppFocus::InputField(InputField::OutputPath);
+        app.output_path.clear();
+        app.editing_input = Some(InputField::OutputPath);
+        let plan = app.solved_plan.clone();
+
+        for c in "rw/tmp/rw.txt".chars() {
+            assert!(handle_event(&mut app, AppEvent::Char(c)).is_continue());
+        }
+
+        assert_eq!(app.output_path, "rw/tmp/rw.txt");
+        assert_eq!(app.focus, AppFocus::InputField(InputField::OutputPath));
+        assert_eq!(app.solved_plan, plan);
+        assert!(app.flash_error.is_none());
+    }
+
+    /// Leaving an edited field with Tab gives `w` back its shortcut meaning.
+    #[test]
+    fn w_writes_after_tabbing_out_of_field() {
+        let mut app = solved_app();
+        let path = temp_path("tab-out.txt");
+        app.focus = AppFocus::InputField(InputField::OutputPath);
+        app.output_path.clear();
+        for c in path.to_string_lossy().chars() {
+            assert!(handle_event(&mut app, AppEvent::Char(c)).is_continue());
+        }
+
+        assert!(handle_event(&mut app, AppEvent::Tab).is_continue());
+        assert!(handle_event(&mut app, AppEvent::Char('w')).is_continue());
+
+        let written = std::fs::read_to_string(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(written.is_ok(), "plan not written: {:?}", app.flash_error);
     }
 
     /// `w` without a plan flashes a notice instead of writing.

@@ -300,8 +300,17 @@ fn verbosity_levels_log_loading() {
         let output = run(&["solve", &file, flag]);
 
         assert_eq!(output.status.code(), Some(0), "{flag}");
-        assert!(all_output(&output).contains(log_line), "{flag}");
+        assert!(stderr(&output).contains(log_line), "{flag}");
+        assert!(
+            !stdout(&output).contains(log_line),
+            "{flag}: logs on stdout"
+        );
     }
+
+    // Logs on stderr keep machine-readable stdout intact.
+    let json = run(&["solve", &file, "-vv", "--format", "json"]);
+    assert_eq!(json.status.code(), Some(0));
+    serde_json::from_slice::<serde_json::Value>(&json.stdout).expect("stdout is valid JSON");
 
     let quiet = run(&["check", &file]);
     assert!(!all_output(&quiet).contains(log_line));
@@ -318,6 +327,16 @@ fn solve_rejects_unknown_planner() {
     assert_eq!(output.status.code(), Some(1));
     assert!(stderr.contains("unknown planner: nope"), "{stderr}");
     assert!(stderr.contains("astar"), "{stderr}");
+}
+
+/// An unknown heuristic name fails instead of silently falling back to hFF.
+#[test]
+fn solve_rejects_unknown_heuristic() {
+    let output = run(&["solve", &example("gripper-small.pddl"), "-H", "nope"]);
+
+    let stderr = stderr(&output);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr.contains("invalid heuristic name: nope"), "{stderr}");
 }
 
 /// A missing input file fails to load.

@@ -90,7 +90,7 @@ struct SolveArgs {
     planner: String,
 
     /// Heuristic to use (ignored for blind planners)
-    #[arg(short = 'H', long, default_value = "ff")]
+    #[arg(short = 'H', long, default_value = "hff")]
     heuristic: String,
 
     /// Timeout duration (e.g. "30s", "2m")
@@ -150,7 +150,11 @@ fn init_tracing(verbose: u8) {
         _ => "miniplan=trace",
     };
 
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    // Logs go to stderr so they never mix with the plan on stdout.
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .init();
 }
 
 /// Runs the `solve` subcommand: load, ground, search, then report the outcome.

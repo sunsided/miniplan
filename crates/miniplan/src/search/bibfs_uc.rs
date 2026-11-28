@@ -88,7 +88,7 @@ struct Search<'a> {
     task: &'a Task,
     /// Limits and clock of this run.
     budget: Budget<'a>,
-    /// Counters reported with the outcome. `nodes_generated` stays `0`.
+    /// Counters reported with the outcome.
     stats: SearchStats,
     /// Forward states of the next layer to expand, in generation order.
     forward_queue: VecDeque<State>,
@@ -181,6 +181,7 @@ impl<'a> Search<'a> {
             if state.applicable(op) {
                 let next = state.apply(op);
                 if !self.forward_closed.contains_key(&next) {
+                    self.stats.nodes_generated += 1;
                     self.forward_closed
                         .insert(next.clone(), (Some(state.clone()), op.id));
                     layer.push(next);
@@ -224,6 +225,7 @@ impl<'a> Search<'a> {
             if can_regress(op, subgoal) {
                 let previous = regress(op, subgoal, num_facts);
                 if !self.backward_closed.contains_key(&previous) {
+                    self.stats.nodes_generated += 1;
                     self.backward_closed
                         .insert(previous.clone(), (Some(subgoal.clone()), op.id));
                     layer.push(previous);

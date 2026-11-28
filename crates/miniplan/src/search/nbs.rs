@@ -155,6 +155,7 @@ impl<'a> Search<'a> {
         };
 
         let init_h = heuristic.estimate(task, &task.init).0;
+        search.meets.label_forward(&task.init, 0.0);
         search
             .forward
             .push_root(task.init.clone(), [0.0 + init_h, 0.0]);
@@ -162,6 +163,7 @@ impl<'a> Search<'a> {
         let goal = (task.goal_pos.clone(), task.goal_neg.clone());
         let goal_h = max_fact_cost(&goal.0, &search.fact_costs);
         if goal_h != f64::INFINITY {
+            search.meets.label_backward(&goal, 0.0);
             search.backward.push_root(goal, [0.0 + goal_h, 0.0]);
         }
 
@@ -231,7 +233,7 @@ impl<'a> Search<'a> {
         };
 
         self.stats.nodes_expanded += 1;
-        self.meets.add_forward(&state, g);
+        self.meets.expand_forward(&state, g);
 
         let task = self.task;
         for op in &task.operators {
@@ -241,6 +243,7 @@ impl<'a> Search<'a> {
                 if self.forward.improves(&next, new_g) {
                     let h = self.heuristic.estimate(task, &next).0;
                     self.stats.nodes_generated += 1;
+                    self.meets.label_forward(&next, new_g);
                     self.forward
                         .push(next, new_g, [new_g + h, new_g], state.clone(), op.id);
                 }
@@ -256,7 +259,7 @@ impl<'a> Search<'a> {
         };
 
         self.stats.nodes_expanded += 1;
-        self.meets.add_backward(&subgoal, g);
+        self.meets.expand_backward(&subgoal, g);
 
         let task = self.task;
         for op in &task.operators {
@@ -279,6 +282,7 @@ impl<'a> Search<'a> {
         }
 
         self.stats.nodes_generated += 1;
+        self.meets.label_backward(&previous, g);
         self.backward
             .push(previous, g, [g + h, g], subgoal.clone(), op);
     }

@@ -3,8 +3,12 @@
 //! Each direction keeps three open lists over the same nodes (a three-heap [`Frontier`]):
 //! one ordered by BAE*'s `b = 2g + h - h_opposite`, which picks expansions, and one each by
 //! `f = g + h` and by `g`, which feed the stopping bound. The search stops once the best meet
-//! costs no more than the larger of the [`frontier_bound`] and the mean of both sides'
-//! smallest `b`.
+//! costs no more than the [`frontier_bound`].
+//!
+//! BAE* proper also stops on the mean of both sides' smallest `b`. That bound only holds when
+//! each side's `h_opposite` is the other side's heuristic. Backward, `h_opposite` here is a
+//! goal-side relaxed cost rather than the planner's forward heuristic, so the mean can exceed
+//! the optimal cost and is not used: `b` only orders expansions.
 //!
 //! Forward, `h` is the planner's [`Heuristic`] and `h_opposite` the largest relaxed cost
 //! (from the initial state) among the state's facts. Backward, `h` is that relaxed cost
@@ -14,7 +18,7 @@
 //! ```mermaid
 //! flowchart TD
 //!     limits{budget used up?} -->|yes| limit[LimitReached]
-//!     limits -->|no| bound{"max(bound, mean b) >= best meet?"}
+//!     limits -->|no| bound{"frontier bound >= best meet?"}
 //!     bound -->|yes| plan[Plan]
 //!     bound -->|no| done{both sides exhausted?}
 //!     done -->|"yes, meet"| plan
@@ -163,6 +167,7 @@ impl<'a> Search<'a> {
 
         let init_h = heuristic.estimate(task, &task.init).0;
         let init_h_opposite = max_fact_cost(&task.init, &search.fact_costs);
+        search.meets.label_forward(&task.init, 0.0);
         search
             .forward
             .push_root(task.init.clone(), priorities(0.0, init_h, init_h_opposite));
@@ -171,6 +176,7 @@ impl<'a> Search<'a> {
         let goal_h = max_fact_cost(&goal.0, &search.fact_costs);
         let goal_h_opposite = max_fact_cost(&goal.0, &search.back_costs);
         if goal_h != f64::INFINITY && goal_h_opposite != f64::INFINITY {
+            search.meets.label_backward(&goal, 0.0);
             search
                 .backward
                 .push_root(goal, priorities(0.0, goal_h, goal_h_opposite));
@@ -206,7 +212,12 @@ impl<'a> Search<'a> {
     /// The search is decided when the lower bound on the plan cost reaches the best meet's
     /// cost, or when both sides are exhausted.
     fn check_finished(&mut self) -> Option<SearchOutcome> {
-        let bound = self.lower_bound();
+        let bound = frontier_bound(
+            self.forward.min_priority(BY_F),
+            self.backward.min_priority(BY_F),
+            self.forward.min_priority(BY_G),
+            self.backward.min_priority(BY_G),
+        );
         if self.meets.best().is_some_and(|meet| bound >= meet.cost)
             || (self.forward.is_exhausted() && self.backward.is_exhausted())
         {
@@ -214,25 +225,6 @@ impl<'a> Search<'a> {
         }
 
         None
-    }
-
-    /// Lower bound on the cost of any plan not found yet: the [`frontier_bound`], raised to
-    /// the mean of both sides' smallest `b` when both sides are open.
-    fn lower_bound(&self) -> f64 {
-        let bound = frontier_bound(
-            self.forward.min_priority(BY_F),
-            self.backward.min_priority(BY_F),
-            self.forward.min_priority(BY_G),
-            self.backward.min_priority(BY_G),
-        );
-
-        match (
-            self.forward.min_priority(BY_B),
-            self.backward.min_priority(BY_B),
-        ) {
-            (Some(forward_b), Some(backward_b)) => bound.max(f64::midpoint(forward_b, backward_b)),
-            _ => bound,
-        }
     }
 
     /// Ends the search with the best meet's plan, or as unsolvable without one.
@@ -255,7 +247,7 @@ impl<'a> Search<'a> {
         };
 
         self.stats.nodes_expanded += 1;
-        self.meets.add_forward(&state, g);
+        self.meets.expand_forward(&state, g);
 
         let task = self.task;
         for op in &task.operators {
@@ -275,6 +267,7 @@ impl<'a> Search<'a> {
         let h_opposite = max_fact_cost(&next, &self.fact_costs);
 
         self.stats.nodes_generated += 1;
+        self.meets.label_forward(&next, g);
         self.forward
             .push(next, g, priorities(g, h, h_opposite), state.clone(), op);
     }
@@ -287,7 +280,7 @@ impl<'a> Search<'a> {
         };
 
         self.stats.nodes_expanded += 1;
-        self.meets.add_backward(&subgoal, g);
+        self.meets.expand_backward(&subgoal, g);
 
         let task = self.task;
         for op in &task.operators {
@@ -315,6 +308,7 @@ impl<'a> Search<'a> {
         }
 
         self.stats.nodes_generated += 1;
+        self.meets.label_backward(&previous, g);
         self.backward.push(
             previous,
             g,

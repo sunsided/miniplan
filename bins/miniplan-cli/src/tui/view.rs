@@ -128,14 +128,16 @@ fn record_hit_areas(app: &mut App, layout: &ScreenLayout) {
     app.areas.config_heuristic_row = layout.config_rows[1].y;
 }
 
-/// Draws the flash message, 40 cells wide, centered horizontally at mid height.
+/// Draws the flash message, up to 40 cells wide, centered horizontally at mid height.
 fn render_flash(frame: &mut Frame, msg: &str) {
     let flash = Paragraph::new(msg.to_owned()).style(bold(Color::Yellow));
+    let area = frame.area();
+    let width = area.width.min(40);
     let flash_area = Rect {
-        x: frame.area().width / 2 - 20,
-        y: frame.area().height / 2,
-        width: 40,
-        height: 1,
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height / 2,
+        width,
+        height: area.height.min(1),
     };
     frame.render_widget(flash, flash_area);
 }
@@ -929,5 +931,17 @@ mod tests {
 
         let middle = screen.lines().nth(20).expect("row 20 exists");
         assert!(middle.contains("Invalid timeout: bad"), "{middle}");
+    }
+
+    /// A terminal narrower than the flash popup still draws it, truncated.
+    #[test]
+    fn flash_message_fits_narrow_terminal() {
+        let mut app = gripper_app();
+        app.set_flash_error("Invalid timeout: bad".to_owned());
+
+        let screen = draw(&mut app, 30, 10);
+
+        let middle = screen.lines().nth(5).expect("row 5 exists");
+        assert!(middle.contains("Invalid timeout"), "{middle}");
     }
 }
