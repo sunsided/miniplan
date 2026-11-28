@@ -12,7 +12,8 @@ pub enum OutputFormat {
     Plain,
     /// IPC-style output; currently the same text as [`OutputFormat::Plain`].
     Ipc,
-    /// A pretty-printed JSON object with `cost`, `length` and the list of step names.
+    /// A pretty-printed JSON object with `cost`, `length` and the list of step names, plus
+    /// `orderings` (pairs of 0-based step indices) when the plan has a partial order.
     Json,
 }
 
@@ -61,12 +62,17 @@ fn render_plan(plan: &Plan, format: &OutputFormat) -> Result<String> {
         OutputFormat::Plain | OutputFormat::Ipc => Ok(format!("{plan}")),
         OutputFormat::Json => {
             let steps: Vec<&str> = plan.steps.iter().map(|s| s.op_name.as_str()).collect();
-            serde_json::to_string_pretty(&serde_json::json!({
+            let mut json = serde_json::json!({
                 "cost": plan.cost,
                 "length": plan.len(),
                 "steps": steps,
-            }))
-            .context("Failed to serialize plan to JSON")
+            });
+
+            if let Some(order) = &plan.partial_order {
+                json["orderings"] = serde_json::json!(order.before);
+            }
+
+            serde_json::to_string_pretty(&json).context("Failed to serialize plan to JSON")
         }
     }
 }
@@ -74,7 +80,7 @@ fn render_plan(plan: &Plan, format: &OutputFormat) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use clap::ValueEnum;
-    use miniplan::plan::PlanStep;
+    use miniplan::plan::{PartialOrder, PlanStep};
     use miniplan::task::OpId;
 
     use super::*;
@@ -93,6 +99,7 @@ mod tests {
                 },
             ],
             cost: 2.0,
+            partial_order: None,
         }
     }
 
@@ -126,6 +133,23 @@ mod tests {
 
         let expected = "{\n  \"cost\": 2.0,\n  \"length\": 2,\n  \"steps\": [\n    \"move(a,b)\",\n    \"pick(x,b)\"\n  ]\n}";
         assert_eq!(text, expected);
+    }
+
+    /// A partial order shows up as `; order` comment lines in plain text and as `orderings`
+    /// in JSON.
+    #[test]
+    fn partial_order_renders_in_plain_and_json() {
+        let mut plan = two_step_plan();
+        plan.partial_order = Some(PartialOrder {
+            before: vec![(0, 1)],
+        });
+
+        let text = render_plan(&plan, &OutputFormat::Plain).unwrap();
+        assert!(text.ends_with("(pick(x,b))\n; order 0 < 1\n"), "{text}");
+
+        let json: serde_json::Value =
+            serde_json::from_str(&render_plan(&plan, &OutputFormat::Json).unwrap()).unwrap();
+        assert_eq!(json["orderings"], serde_json::json!([[0, 1]]));
     }
 
     /// An empty plan renders with zero cost and length and no steps.

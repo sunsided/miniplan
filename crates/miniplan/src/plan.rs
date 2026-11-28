@@ -2,8 +2,11 @@
 //!
 //! A plan is a totally-ordered sequence of grounded operator applications
 //! whose execution transforms the initial state into a goal-satisfying state.
-//! Plans here are **sequential** — there is no partial ordering or parallelism.
-//! They are produced by the planners in [`crate::search`].
+//! Plans are produced by the planners in [`crate::search`].
+//!
+//! The steps are always a valid sequence. A plan-space planner such as
+//! [`Pop`](crate::search::Pop) additionally reports the [`PartialOrder`] it
+//! actually needs: any order of the steps that respects it is a valid plan too.
 //!
 //! The [`Plan`] struct carries two invariants:
 //!
@@ -82,6 +85,27 @@ pub struct Plan {
     ///
     /// Must stay in sync with `steps` — callers mutate both together.
     pub cost: f64,
+    /// The ordering constraints the plan needs, if the planner knows them.
+    ///
+    /// `None` for the state-space planners, which only know the total order of `steps`.
+    pub partial_order: Option<PartialOrder>,
+}
+
+/// The ordering constraints between the steps of a [`Plan`].
+///
+/// Every linearization of the steps that respects these constraints reaches the goal.
+/// Steps not ordered against each other, directly or transitively, are independent.
+///
+/// # Invariants
+///
+/// - Each pair `(i, j)` indexes into [`Plan::steps`] and has `i < j`, so `steps`
+///   itself respects the order.
+/// - The pairs are a transitive reduction: no pair follows from the others.
+/// - The pairs are sorted ascending.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PartialOrder {
+    /// Pairs `(i, j)` meaning step `i` must run before step `j`.
+    pub before: Vec<(usize, usize)>,
 }
 
 impl Default for Plan {
@@ -92,6 +116,7 @@ impl Default for Plan {
         Self {
             steps: Vec::new(),
             cost: 0.0,
+            partial_order: None,
         }
     }
 }
@@ -154,6 +179,8 @@ impl Plan {
 /// - Line 1: `; cost = <cost>` (semicolons are PDDL plan comments).
 /// - Line 2: `; length = <len>`.
 /// - Lines 3..: one `(<op_name>)` per step, each terminated by `\n`.
+/// - With a [`PartialOrder`], one `; order <i> < <j>` comment line per pair after
+///   the steps, with 0-based step indices.
 ///
 /// The trailing newline after the last step matches the `writeln!` macro.
 ///
@@ -180,6 +207,11 @@ impl fmt::Display for Plan {
         for step in &self.steps {
             writeln!(f, "({})", step.op_name)?;
         }
+
+        for (before, after) in self.partial_order.iter().flat_map(|order| &order.before) {
+            writeln!(f, "; order {before} < {after}")?;
+        }
+
         Ok(())
     }
 }
