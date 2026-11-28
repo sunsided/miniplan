@@ -290,6 +290,7 @@ fn ground_action(task: &mut Task, action: &ActionDefinition) -> Result<(), Minip
         })
         .collect();
     let precondition = combined_precondition(action);
+    let cost = extract_action_cost(action)?;
 
     let bindings_list = generate_bindings(&params, &task.objects, &task.types);
     for bindings in &bindings_list {
@@ -307,7 +308,7 @@ fn ground_action(task: &mut Task, action: &ActionDefinition) -> Result<(), Minip
                 add,
                 del,
                 conditional,
-                cost: extract_action_cost(action),
+                cost,
             };
             task.operators.push(op);
         }
