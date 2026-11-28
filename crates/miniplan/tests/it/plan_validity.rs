@@ -409,6 +409,47 @@ fn negative_precondition_on_initial_fact_is_relaxed_reachable() {
     }
 }
 
+/// Regression: expanding a node in NBS and BAE* dropped another open node's entries from
+/// their `g` heaps, so the stopping bound fired early and NBS returned the cost-6 plan
+/// `a0, a1` instead of the cost-5 plan `a0, a2`.
+#[test]
+fn nbs_and_bae_keep_open_nodes_in_their_bounds() {
+    let op = |pre_pos: &[usize], pre_neg: &[usize], add: &[usize], del: &[usize], cost| PropOp {
+        pre_pos: pre_pos.to_vec(),
+        pre_neg: pre_neg.to_vec(),
+        add: add.to_vec(),
+        del: del.to_vec(),
+        cost,
+    };
+    let case = PropCase {
+        facts: 2,
+        init: vec![0],
+        goal: vec![0, 1],
+        ops: vec![
+            op(&[], &[], &[1], &[0], 4),
+            op(&[], &[0], &[0, 1], &[], 2),
+            op(&[1], &[], &[0], &[], 1),
+        ],
+    };
+    let (domain, problem) = load_combined_str(&case.to_pddl()).expect("case parses");
+    let task = ground(&domain, &problem).expect("case grounds");
+
+    for mut planner in [
+        Box::new(Nbs::new(Box::new(HMax))) as Box<dyn Planner>,
+        Box::new(Nbs::new(Box::new(HZero))),
+        Box::new(Bae::new(Box::new(HMax))),
+        Box::new(Bae::new(Box::new(HZero))),
+    ] {
+        let plan = solve(planner.as_mut(), &task).expect("case is solvable");
+        assert!(
+            (plan.cost - 5.0).abs() < 1e-9,
+            "{}: cost {}",
+            planner.name(),
+            plan.cost
+        );
+    }
+}
+
 /// Regression: `BiDij` looped forever when the goal was unreachable but backward regression
 /// kept producing new subgoals (here through the `n3 <-> n5` cycle).
 #[test]
