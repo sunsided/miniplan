@@ -120,10 +120,21 @@ fn plan_reaches_goal(task: &Task, plan: &Plan) -> bool {
 /// # Panics
 ///
 /// Panics when the planner errors or reports a limit. The tasks are tiny, so neither the
-/// default node budget nor the default time budget is ever reached.
+/// default node budget nor the default time budget is ever reached. Also panics when a
+/// plan's statistics count fewer generated nodes than plan steps, since every step
+/// generates at least one node.
 fn solve(planner: &mut dyn Planner, task: &Task) -> Option<Plan> {
     match planner.solve(task, &SearchLimits::default()) {
-        Ok(SearchOutcome::Plan(plan, _)) => Some(plan),
+        Ok(SearchOutcome::Plan(plan, stats)) => {
+            assert!(
+                stats.nodes_generated >= stats.plan_length as u64,
+                "{} generated {} nodes for a {}-step plan",
+                planner.name(),
+                stats.nodes_generated,
+                stats.plan_length
+            );
+            Some(plan)
+        }
         Ok(SearchOutcome::Unsolvable(_)) => None,
         other => panic!("{} returned {other:?}", planner.name()),
     }
