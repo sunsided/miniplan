@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/sunsided/miniplan/compare/miniplan-cli-v0.3.0...miniplan-cli-v0.3.1) - 2026-11-28
+
+### Changed
+
+- Keep r and w working after tabbing out of a TUI field
+- Honor the chosen heuristic in astar and gbfs
+- Fit the TUI flash message into narrow terminals
+- Type r and w into a TUI field while editing it
+- Write CLI logs to stderr
+
 ## [0.3.0](https://github.com/sunsided/miniplan/compare/miniplan-cli-v0.2.0...miniplan-cli-v0.3.0) - 2026-11-22
 
 ### Added
