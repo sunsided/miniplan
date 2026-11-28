@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/sunsided/miniplan/compare/v0.3.0...v0.3.1) - 2026-11-28
+
+### Changed
+
+- Document why the relaxed exploration's sweep cap is safe
+- Benchmark the bidirectional heuristic planners
+- Keep built-in heuristic names and constructors in one table
+- Pin the NBS/BAE* open-list regression in a fixed test
+- Make NBS and BAE* optimal with admissible heuristics
+- Reject action costs that are not whole numbers
+- Count generated nodes in BibfsUc
+- Honor the chosen heuristic in astar and gbfs
+
 ## [0.3.0](https://github.com/sunsided/miniplan/compare/v0.2.0...v0.3.0) - 2026-11-22
 
 ### Added
