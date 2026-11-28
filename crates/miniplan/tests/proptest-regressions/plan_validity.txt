@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d12586a6921906ac6caede93ddf2c25d8e0639badb665b3f057b4652421dcdfb # shrinks to case = GraphCase { nodes: 2, edges: [(0, 1)], goal: 1 }
+cc 56c7d192bb5768b060d32bb475f7594e526a714e17c272f0b996592752175043 # shrinks to case = PropCase { facts: 2, init: [], goal: [0], ops: [PropOp { pre_pos: [1], pre_neg: [], add: [0], del: [], cost: 2 }, PropOp { pre_pos: [], pre_neg: [], add: [0], del: [], cost: 5 }, PropOp { pre_pos: [], pre_neg: [], add: [1], del: [], cost: 4 }] }
+cc 844964699aa6483690460ced5de08323b2cd7d741e2ce93812054b02d8af5c20 # shrinks to case = PropCase { facts: 3, init: [], goal: [0, 1], ops: [PropOp { pre_pos: [2], pre_neg: [], add: [1], del: [0], cost: 1 }, PropOp { pre_pos: [], pre_neg: [], add: [2], del: [], cost: 2 }, PropOp { pre_pos: [], pre_neg: [], add: [1], del: [], cost: 4 }, PropOp { pre_pos: [], pre_neg: [], add: [0], del: [], cost: 3 }] }

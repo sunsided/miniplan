@@ -55,13 +55,20 @@ impl<T> Ord for OpenEntry<T> {
     }
 }
 
+/// The epoch of an expanded node. No entry carries it, so a closed node has no live entry.
+const CLOSED: u64 = u64::MAX;
+
 /// One direction of a multi-queue bidirectional search with `N` heaps over the same nodes.
 ///
 /// Every push of a node goes to all `N` heaps with a fresh epoch. An entry is live while its
-/// `g` and epoch still match the node's current ones; older entries are skipped when popped.
-/// Heap `0` picks the node to expand. The last heap must be ordered by `g`, so its minimum
-/// priority is the smallest open `g`.
+/// `g` and epoch still match the node's current ones; expanding a node gives it the
+/// [`CLOSED`] epoch, so all its entries die until it is reopened at a lower `g`. Dead entries
+/// are dropped lazily, whenever they reach the top of a heap. Heap `0` picks the node to
+/// expand. The last heap must be ordered by `g`, so its minimum priority is the smallest open
+/// `g`.
 pub(super) struct Frontier<T, const N: usize> {
+    // Every heap holds a live entry for exactly the open nodes, so the heap minima are the
+    // smallest open priorities that the planners' stopping bounds rely on.
     /// The open lists, one per priority.
     heaps: [BinaryHeap<OpenEntry<T>>; N],
     /// Best known path cost per node.
@@ -112,26 +119,29 @@ impl<T: Clone + Eq + Hash, const N: usize> Frontier<T, N> {
         self.epochs.insert(node, epoch);
     }
 
-    /// The smallest priority in heap `heap`, outdated entries included.
-    pub(super) fn min_priority(&self, heap: usize) -> Option<f64> {
-        self.heaps[heap].peek().map(|entry| entry.priority)
+    /// The smallest priority of an open node in heap `heap`, or `None` if no node is open.
+    pub(super) fn min_priority(&mut self, heap: usize) -> Option<f64> {
+        while let Some(top) = self.heaps[heap].peek() {
+            if self.is_live(top) {
+                return Some(top.priority);
+            }
+
+            self.heaps[heap].pop();
+        }
+
+        None
     }
 
-    /// Returns `true` once any heap has run empty.
-    pub(super) fn is_exhausted(&self) -> bool {
-        self.heaps.iter().any(BinaryHeap::is_empty)
+    /// Returns `true` once no node is open.
+    pub(super) fn is_exhausted(&mut self) -> bool {
+        self.min_priority(0).is_none()
     }
 
-    /// Pops the next node to expand, with its `g`.
-    ///
-    /// Takes the first live entry from heap `0`, then one live entry from each other heap to
-    /// keep the heaps in step; those entries may belong to other nodes and are dropped.
-    /// Returns `None`, dropping whatever was popped, as soon as one heap has no live entry.
+    /// Pops the open node with the smallest heap-`0` priority for expansion, with its `g`,
+    /// and closes it. Returns `None` if no node is open.
     pub(super) fn pop_expansion(&mut self) -> Option<(T, f64)> {
         let chosen = self.pop_live(0)?;
-        for heap in 1..N {
-            self.pop_live(heap)?;
-        }
+        self.epochs.insert(chosen.node.clone(), CLOSED);
 
         Some((chosen.node, chosen.g))
     }

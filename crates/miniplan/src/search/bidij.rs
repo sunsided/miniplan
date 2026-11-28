@@ -112,7 +112,7 @@ struct Search<'a> {
     forward: DijkstraSide<State>,
     /// Dijkstra over subgoals, rooted at the goal.
     backward: DijkstraSide<Subgoal>,
-    /// Expanded nodes of both sides and the cheapest meet so far.
+    /// Labelled nodes of both sides and the cheapest meet so far.
     meets: MeetIndex,
 }
 
@@ -120,6 +120,9 @@ impl<'a> Search<'a> {
     /// Opens both search roots: the initial state forward and the goal backward.
     fn new(task: &'a Task, budget: Budget<'a>) -> Self {
         let goal = (task.goal_pos.clone(), task.goal_neg.clone());
+        let mut meets = MeetIndex::new(task.num_facts());
+        meets.label_forward(&task.init, 0.0);
+        meets.label_backward(&goal, 0.0);
 
         Self {
             task,
@@ -127,7 +130,7 @@ impl<'a> Search<'a> {
             stats: SearchStats::default(),
             forward: DijkstraSide::new(task.init.clone()),
             backward: DijkstraSide::new(goal),
-            meets: MeetIndex::new(task.num_facts()),
+            meets,
         }
     }
 
@@ -199,14 +202,15 @@ impl<'a> Search<'a> {
         };
 
         self.stats.nodes_expanded += 1;
-        self.meets.add_forward(&state, g);
+        self.meets.expand_forward(&state, g);
 
         let task = self.task;
         for op in &task.operators {
             if state.applicable(op) {
                 let next = state.apply(op);
                 let new_g = g + f64::from(op.cost);
-                if self.forward.relax(next, new_g, &state, op.id) {
+                if self.forward.relax(next.clone(), new_g, &state, op.id) {
+                    self.meets.label_forward(&next, new_g);
                     self.stats.nodes_generated += 1;
                 }
             }
@@ -221,14 +225,18 @@ impl<'a> Search<'a> {
         };
 
         self.stats.nodes_expanded += 1;
-        self.meets.add_backward(&subgoal, g);
+        self.meets.expand_backward(&subgoal, g);
 
         let task = self.task;
         for op in &task.operators {
             if can_regress(op, &subgoal) {
                 let previous = regress(op, &subgoal, task.num_facts());
                 let new_g = g + f64::from(op.cost);
-                if self.backward.relax(previous, new_g, &subgoal, op.id) {
+                if self
+                    .backward
+                    .relax(previous.clone(), new_g, &subgoal, op.id)
+                {
+                    self.meets.label_backward(&previous, new_g);
                     self.stats.nodes_generated += 1;
                 }
             }
@@ -480,9 +488,9 @@ mod tests {
         // Two paths to state {1}: op0 (cost 3) and op1 (cost 1).
         // After {1} is settled at g=1, the stale entry at g=3 should be skipped.
         // Chain: 0 -> 1 -> 2 -> 3 -> 4
-        // With arena-based meet scan: nodes_expanded = 6 (meet detected one step later
-        // than HashMap-based scan since backward subgoals must be canonical first).
-        // Without stale guard: would be 7 (stale {1}@g3 would be "expanded").
+        // Meets between a labelled and an expanded node are found as soon as both exist,
+        // so the cost-4 meet is final after 5 expansions; the stale {1}@g3 entry is never
+        // counted as one.
         let task = make_test_task(
             5,
             &[0],
@@ -503,7 +511,7 @@ mod tests {
         match outcome {
             SearchOutcome::Plan(plan, stats) => {
                 assert_eq!(plan.cost, 4.0);
-                assert_eq!(stats.nodes_expanded, 6);
+                assert_eq!(stats.nodes_expanded, 5);
             }
             _ => panic!("expected a plan"),
         }
