@@ -186,6 +186,7 @@ mod tests {
                 })
                 .collect(),
             cost: 0.0,
+            partial_order: None,
         }
     }
 

@@ -6,4 +6,5 @@ mod hanoi_derived;
 mod loading;
 mod pddl_plus;
 mod plan_validity;
+mod pop;
 mod registry;

@@ -10,7 +10,9 @@ use criterion::Criterion;
 use miniplan::ground::ground;
 use miniplan::heuristic::{HFF, HMax, HZero};
 use miniplan::pddl_io::load_files_named;
-use miniplan::search::{Astar, Bae, Bfs, BiDij, Gbfs, Nbs, Planner, SearchLimits, SearchOutcome};
+use miniplan::search::{
+    Astar, Bae, Bfs, BiDij, Gbfs, Nbs, Planner, Pop, PopRanking, SearchLimits, SearchOutcome,
+};
 use miniplan::task::Task;
 
 /// Runs every benchmark in this file with criterion's command-line flags.
@@ -23,7 +25,8 @@ fn main() {
     criterion.final_summary();
 }
 
-/// Gripper-4: blind, optimal heuristic and bidirectional searches on a small task.
+/// Gripper-4: blind, optimal heuristic, bidirectional and plan-space searches on a small
+/// task.
 fn bench_gripper(criterion: &mut Criterion) {
     let task = load_example("gripper.pddl", None);
 
@@ -40,6 +43,9 @@ fn bench_gripper(criterion: &mut Criterion) {
     });
     bench_planner(criterion, "gripper/bae-hmax", &task, || {
         Bae::new(Box::new(HMax))
+    });
+    bench_planner(criterion, "gripper/pop-hadd", &task, || {
+        Pop::new(PopRanking::HAdd)
     });
 }
 

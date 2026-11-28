@@ -39,7 +39,7 @@ const DOMAIN: &str = "
 
 /// A generated graph-walk problem: the token starts at node 0 and must reach `goal`.
 #[derive(Debug, Clone)]
-struct GraphCase {
+pub(crate) struct GraphCase {
     /// Number of nodes, named `n0` to `n{nodes - 1}`. At least 2.
     nodes: usize,
     /// Directed edges as `(from, to)` node indices, without self-loops.
@@ -50,7 +50,7 @@ struct GraphCase {
 
 impl GraphCase {
     /// Renders the domain and problem as one PDDL source string.
-    fn to_pddl(&self) -> String {
+    pub(crate) fn to_pddl(&self) -> String {
         let objects: Vec<String> = (0..self.nodes).map(|n| format!("n{n}")).collect();
         let edges = self
             .edges
@@ -68,7 +68,7 @@ impl GraphCase {
     }
 
     /// Length of the shortest path from node 0 to the goal, or `None` if unreachable.
-    fn shortest_path_len(&self) -> Option<usize> {
+    pub(crate) fn shortest_path_len(&self) -> Option<usize> {
         let mut distance = vec![None; self.nodes];
         distance[0] = Some(0);
         let mut queue = VecDeque::from([0]);
@@ -88,7 +88,7 @@ impl GraphCase {
 }
 
 /// Strategy for [`GraphCase`]s with 2 to [`MAX_NODES`] nodes and random edges.
-fn graph_case() -> impl Strategy<Value = GraphCase> {
+pub(crate) fn graph_case() -> impl Strategy<Value = GraphCase> {
     (2..=MAX_NODES).prop_flat_map(|nodes| {
         let edge = (0..nodes, 0..nodes).prop_filter("no self-loops", |(a, b)| a != b);
         let edges = proptest::collection::vec(edge, 0..nodes * 2);
@@ -98,7 +98,7 @@ fn graph_case() -> impl Strategy<Value = GraphCase> {
 }
 
 /// Grounds a generated case. Generated PDDL is always well-formed, so failures are bugs.
-fn ground_case(case: &GraphCase) -> Task {
+pub(crate) fn ground_case(case: &GraphCase) -> Task {
     let (domain, problem) = load_combined_str(&case.to_pddl()).expect("generated PDDL parses");
 
     ground(&domain, &problem).expect("generated problem grounds")
@@ -106,7 +106,7 @@ fn ground_case(case: &GraphCase) -> Task {
 
 /// Returns `true` when `plan` is applicable step by step from the initial state and ends in
 /// a goal state.
-fn plan_reaches_goal(task: &Task, plan: &Plan) -> bool {
+pub(crate) fn plan_reaches_goal(task: &Task, plan: &Plan) -> bool {
     let mut state = task.init.clone();
     for step in &plan.steps {
         let op = &task.operators[step.op_id.0];
@@ -208,7 +208,7 @@ struct PropOp {
 
 /// A generated propositional task over nullary facts `f0` to `f{facts - 1}`.
 #[derive(Debug, Clone)]
-struct PropCase {
+pub(crate) struct PropCase {
     /// Number of facts.
     facts: usize,
     /// Facts true in the initial state.
@@ -221,7 +221,7 @@ struct PropCase {
 
 impl PropCase {
     /// Renders the domain and problem as one PDDL source string.
-    fn to_pddl(&self) -> String {
+    pub(crate) fn to_pddl(&self) -> String {
         let atoms = |facts: &[usize]| {
             facts.iter().fold(String::new(), |mut out, f| {
                 write!(out, " (f{f})").expect("writing to a String cannot fail");
@@ -298,7 +298,7 @@ fn prop_op(facts: usize) -> impl Strategy<Value = PropOp> {
 }
 
 /// Strategy for [`PropCase`]s with 2 to [`MAX_FACTS`] facts and 1 to [`MAX_OPS`] operators.
-fn prop_case() -> impl Strategy<Value = PropCase> {
+pub(crate) fn prop_case() -> impl Strategy<Value = PropCase> {
     (2..=MAX_FACTS).prop_flat_map(|facts| {
         (
             fact_subset(facts, facts),
@@ -316,7 +316,7 @@ fn prop_case() -> impl Strategy<Value = PropCase> {
 
 /// Cheapest plan cost of `task` by uniform-cost search over grounded states, or `None` if the
 /// goal is unreachable.
-fn cheapest_cost(task: &Task) -> Option<u64> {
+pub(crate) fn cheapest_cost(task: &Task) -> Option<u64> {
     let mut best: HashMap<State, u64> = HashMap::from([(task.init.clone(), 0)]);
     let mut open = BinaryHeap::from([(Reverse(0u64), 0usize)]);
     let mut states = vec![task.init.clone()];

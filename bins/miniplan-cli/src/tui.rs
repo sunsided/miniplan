@@ -317,6 +317,7 @@ mod tests {
                 op_name: "only".to_owned(),
             }],
             cost: 1.0,
+            partial_order: None,
         });
         draw(&mut app, 120, 40);
         let plan = app.areas.plan.expect("plan area");

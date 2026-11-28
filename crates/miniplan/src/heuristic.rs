@@ -33,4 +33,4 @@ pub use zero::HZero;
 
 pub use crate::search::Heuristic;
 
-pub(crate) use relaxed::{rpg_backward_fact_costs, rpg_fact_costs};
+pub(crate) use relaxed::{rpg_add_fact_costs, rpg_backward_fact_costs, rpg_fact_costs};

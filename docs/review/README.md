@@ -17,6 +17,6 @@ you review a change, read only the topics whose globs match the changed files.
 | [Documentation](docs.md) | `**/*.md`, `docs/**` | Absolute URLs, doctested README examples, tagged code blocks, consistent badges. |
 | [Crates and releases](release.md) | `**/Cargo.toml`, `Cargo.lock`, `deny.toml`, `REUSE.toml`, `release-plz.toml`, `.github/workflows/release-plz.yml`, `.github/workflows/publish-crates-io.yml`, `.github/workflows/release-binaries.yml`, `**/CHANGELOG.md` | Crate metadata, shared version group, deny policy, release-plz and trusted publishing. |
 | [Rust code](rust.md) | `**/*.rs` | House style: docs on every item, no mod.rs, no separators, blank lines, helper extraction, pedantic clippy, no unsafe. |
-| [Planners and heuristics](search.md) | `crates/miniplan/src/search.rs`, `crates/miniplan/src/search/**`, `crates/miniplan/src/heuristic.rs`, `crates/miniplan/src/heuristic/**`, `crates/miniplan/tests/it/plan_validity.rs`, `crates/miniplan/benches/**` | Termination, optimality claims, limits, and the property tests that back them. |
+| [Planners and heuristics](search.md) | `crates/miniplan/src/search.rs`, `crates/miniplan/src/search/**`, `crates/miniplan/src/heuristic.rs`, `crates/miniplan/src/heuristic/**`, `crates/miniplan/tests/it/plan_validity.rs`, `crates/miniplan/tests/it/pop.rs`, `crates/miniplan/benches/**` | Termination, optimality claims, limits, and the property tests that back them. |
 
 <!-- review-index:end -->

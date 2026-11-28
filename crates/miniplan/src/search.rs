@@ -2,7 +2,8 @@
 //!
 //! This module provides a collection of search algorithms (planners) for solving
 //! PDDL planning tasks. It includes unidirectional planners like BFS and A*,
-//! as well as bidirectional planners like `BiDij`, NBS, and BAE*.
+//! bidirectional planners like `BiDij`, NBS, and BAE*, and the plan-space
+//! partial-order planner [`Pop`].
 //!
 //! # Entry points
 //!
@@ -37,6 +38,7 @@ mod meet;
 mod nbs;
 mod open_list;
 mod outcome;
+mod pop;
 mod regression;
 #[cfg(test)]
 mod test_support;
@@ -58,6 +60,7 @@ pub use bibfs_uc::BibfsUc;
 pub use bidij::BiDij;
 pub use gbfs::Gbfs;
 pub use nbs::Nbs;
+pub use pop::{Pop, PopRanking};
 
 /// A heuristic value returned by [`Heuristic::estimate`].
 ///
@@ -320,7 +323,8 @@ impl Registry {
         self.register_builtin_heuristics();
     }
 
-    /// Registers the built-in unidirectional planners, then the bidirectional ones.
+    /// Registers the built-in unidirectional planners, then the bidirectional ones, then the
+    /// partial-order planner.
     fn register_builtin_planners(&mut self) {
         self.register_planner(RegisteredPlanner {
             name: "bfs",
@@ -349,6 +353,21 @@ impl Registry {
         });
 
         self.register_bidirectional_planners();
+
+        self.register_planner(RegisteredPlanner {
+            name: "pop",
+            description: "Partial-order causal-link planner (plan-space search)",
+            capabilities: PlannerCapabilities::CLASSICAL
+                | PlannerCapabilities::NEGATIVE_PRECONDS
+                | PlannerCapabilities::ACTION_COSTS,
+            factory: std::sync::Arc::new(|cfg| {
+                let ranking = match cfg.opts.get("heuristic") {
+                    None => PopRanking::default(),
+                    Some(name) => PopRanking::from_name(name)?,
+                };
+                Ok(Box::new(Pop::new(ranking)))
+            }),
+        });
     }
 
     /// Registers the built-in bidirectional planners.
@@ -571,6 +590,8 @@ pub enum PlannerKind {
     Nbs,
     /// Bidirectional A* with Error (BAE*, Sadhukhan 2013).
     Bae,
+    /// Partial-order causal-link planner (plan-space search).
+    Pop,
 }
 
 impl std::fmt::Display for PlannerKind {
@@ -583,6 +604,7 @@ impl std::fmt::Display for PlannerKind {
             PlannerKind::BiDij => write!(f, "bidij"),
             PlannerKind::Nbs => write!(f, "nbs"),
             PlannerKind::Bae => write!(f, "bae"),
+            PlannerKind::Pop => write!(f, "pop"),
         }
     }
 }
@@ -599,8 +621,9 @@ impl std::str::FromStr for PlannerKind {
             "bidij" => Ok(PlannerKind::BiDij),
             "nbs" => Ok(PlannerKind::Nbs),
             "bae" => Ok(PlannerKind::Bae),
+            "pop" => Ok(PlannerKind::Pop),
             _ => Err(format!(
-                "unknown planner: {s} (expected one of: bfs, astar, gbfs, bibfs-uc, bidij, nbs, bae)"
+                "unknown planner: {s} (expected one of: bfs, astar, gbfs, bibfs-uc, bidij, nbs, bae, pop)"
             )),
         }
     }
@@ -618,6 +641,7 @@ impl PlannerKind {
             PlannerKind::BiDij => "bidij",
             PlannerKind::Nbs => "nbs",
             PlannerKind::Bae => "bae",
+            PlannerKind::Pop => "pop",
         }
     }
 }
