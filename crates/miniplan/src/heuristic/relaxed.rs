@@ -260,10 +260,16 @@ impl<'a> RpgBuilder<'a> {
 /// Runs the forward relaxed exploration from `state`.
 ///
 /// Sweeps repeat until a sweep lowers no cost, so the costs are the fixpoint
-/// of the [`Aggregate`] rule. With non-negative operator costs this takes at
-/// most one sweep per fact plus one; as a safety net, the exploration also
-/// stops once more than twice as many non-empty sweeps (levels) as there are
-/// facts have run.
+/// of the [`Aggregate`] rule.
+///
+/// With non-negative operator costs every fact's fixpoint cost has a
+/// derivation in which each fact's cheapest achiever depends only on facts
+/// derived before it, so its depth is at most the number of facts. A sweep
+/// applies every operator, so after `k` sweeps every fact of depth `k` or
+/// less has its final cost, however many times costs dropped on the way.
+/// The fixpoint is therefore reached within `num_facts` sweeps and confirmed
+/// by one more. The cap of twice that many sweeps is only a safety net; it is
+/// asserted never to cut the fixpoint short in debug builds.
 fn build_rpg(task: &Task, state: &State, aggregate: Aggregate) -> RpgResult {
     let max_levels = task.num_facts() * 2;
     let mut builder = RpgBuilder::new(task, state, aggregate);
@@ -275,7 +281,12 @@ fn build_rpg(task: &Task, state: &State, aggregate: Aggregate) -> RpgResult {
             num_levels += 1;
         }
 
-        if !sweep.lowered || num_levels > max_levels {
+        if !sweep.lowered {
+            break;
+        }
+
+        if num_levels > max_levels {
+            debug_assert!(false, "relaxed exploration exceeded {max_levels} sweeps");
             break;
         }
     }
@@ -481,6 +492,33 @@ mod tests {
             conditional: vec![],
             cost,
         }
+    }
+
+    /// Operators listed against the chain order need one sweep per chain link,
+    /// and an expensive shortcut found first is lowered again in the last
+    /// sweep; the exploration still ends at the exact h^max fixpoint.
+    #[test]
+    fn rpg_reaches_fixpoint_on_reversed_chain() {
+        // Chain f0 -> f1 -> ... -> f9 at cost 1 per link, listed last link first,
+        // plus a direct f0 -> f9 shortcut at cost 100 listed before everything.
+        let mut ops = vec![make_op(0, "shortcut", &[0], &[], &[9], &[], 100)];
+        for link in (0..9).rev() {
+            ops.push(make_op(
+                ops.len(),
+                "link",
+                &[link],
+                &[],
+                &[link + 1],
+                &[],
+                1,
+            ));
+        }
+        let task = make_test_task(10, &[0], &[9], &[], ops);
+
+        let costs = rpg_fact_costs(&task, &task.init);
+
+        let expected: Vec<f64> = (0..10).map(f64::from).collect();
+        assert_eq!(costs, expected);
     }
 
     /// Goal facts have backward cost zero.
